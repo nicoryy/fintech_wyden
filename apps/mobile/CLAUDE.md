@@ -82,5 +82,14 @@ reaproveitam os enums de `@wyden/shared` e espelham as entities do backend.
 ## Validação
 - `npm run typecheck` (ou `npx tsc --noEmit`) → zero erros
 - `npm run lint` (ESLint flat config + `eslint-config-expo`) → zero erros
+- `npm run test` → jest (jest-expo), todos passam
 - `npx expo export --platform android` → bundle compila sem erro de resolução
+
+## Testes
+- **jest-expo** + **@testing-library/react-native 13.3.3** + **react-test-renderer**.
+- Setup: `jest.config.js` (preset `jest-expo`, `transformIgnorePatterns` ampliado p/ RN/expo/svg/nativewind/react-query/@wyden) e `jest.setup.js` (mocks de `expo-router` e `expo-font`).
+- `babel.config.js` desliga o plugin NativeWind quando `api.env('test')` — o transform CSS-interop dele injeta um helper fora de escopo que quebra o hoisting de `jest.mock()`. A UI não usa `className`, então é inócuo.
+- Helpers em `src/test-utils/providers.tsx` (`renderWithProviders`, `queryWrapper`, `makeQueryClient`).
+- Specs: `src/utils/*.test.ts` (funções puras), `src/services/hooks.test.tsx` (React Query), `src/components/__tests__/*` (Icon, TabBar), `src/screens/**/*.test.tsx` (Add + smoke das telas).
+- **Pin de versões (NÃO desfazer):** `react`, `react-dom` e `react-test-renderer` DEVEM ser a mesma versão (`19.2.7`). `react-dom` (transitivo, web) exige `^19.2.7`; o `overrides` no `package.json` raiz força `react`/`react-test-renderer` a baterem. Versões diferentes fazem `render()` falhar com "Can't access .root on unmounted test renderer". `tsconfig.json` precisa de `"types": ["jest"]` (o auto-include do @types hoisted não pega com `moduleResolution: bundler`).
 ```

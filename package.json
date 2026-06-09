@@ -7,5 +7,10 @@
     "api": "npm run start:dev --workspace=apps/api",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
+  },
+  "comment:overrides": "react-dom (pulled transitively) requires react@^19.2.7, so React is pinned at 19.2.7. jest-expo ships react-test-renderer@19.2.3, which then loads the hoisted react@19.2.7 and mismatches ('Can't access .root on unmounted test renderer'). Force react-test-renderer to the same 19.2.7 so the test renderer and React agree.",
+  "overrides": {
+    "react": "19.2.7",
+    "react-test-renderer": "19.2.7"
   }
 }
