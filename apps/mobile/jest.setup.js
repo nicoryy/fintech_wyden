@@ -4,6 +4,13 @@
 
 /* eslint-disable no-undef */
 
+// React Query batches cache notifications on a microtask/timer by default,
+// which makes state updates land *after* a test's `waitFor` resolves and
+// triggers "update not wrapped in act(...)" warnings. Make the scheduler
+// synchronous in tests so every notification happens inside act().
+const { notifyManager } = require('@tanstack/react-query');
+notifyManager.setScheduler((cb) => cb());
+
 // expo-router: the screens call useRouter()/router for navigation. The default
 // jest-expo preset does not ship a functional router mock, so provide spies.
 // The factory must be self-contained (jest hoists it above imports); we build
@@ -45,6 +52,24 @@ jest.mock('expo-font', () => ({
   loadAsync: jest.fn(() => Promise.resolve()),
   Font: { isLoaded: () => true },
 }));
+
+// expo-secure-store: no native module under jest. Back it with an in-memory map
+// so auth-storage works headlessly in tests.
+jest.mock('expo-secure-store', () => {
+  const store = new Map();
+  return {
+    __esModule: true,
+    setItemAsync: jest.fn((k, v) => {
+      store.set(k, v);
+      return Promise.resolve();
+    }),
+    getItemAsync: jest.fn((k) => Promise.resolve(store.get(k) ?? null)),
+    deleteItemAsync: jest.fn((k) => {
+      store.delete(k);
+      return Promise.resolve();
+    }),
+  };
+});
 
 // Reset router spies between tests for isolation.
 beforeEach(() => {

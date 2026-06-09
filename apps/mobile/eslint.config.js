@@ -16,4 +16,14 @@ module.exports = defineConfig([
       'tailwind.config.js',
     ],
   },
+  {
+    // Test files: `jest.mock(...)` factories are hoisted above imports and must
+    // use `require()` for the mock module. Relax the import-ordering / require
+    // rules here so deliberate, hoisting-safe mocks don't trip lint.
+    files: ['**/*.test.ts', '**/*.test.tsx'],
+    rules: {
+      'import/first': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
 ]);

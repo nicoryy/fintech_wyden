@@ -1,76 +1,187 @@
 /**
- * React Query data hooks.
+ * React Query data hooks — now backed by the live NestJS API.
  *
- * ── MOCK → API SWAP POINT ────────────────────────────────────────────────────
- * Each `queryFn` currently returns `Promise.resolve(<mock>)`. To go live against
- * the NestJS backend, replace the body of the relevant `queryFn` with an axios
- * call, e.g.:
+ * Each hook fetches raw API data via the `api` axios client and runs it through
+ * the pure transforms in `transform.ts` to produce the UI domain shapes the
+ * screens already consume. Query *keys* and return *types* are unchanged from
+ * the former mock-backed version, so the component layer is untouched.
  *
- *   queryFn: async () => (await api.get<Dashboard>('/reports/dashboard')).data
- *
- * The component layer never changes — it only consumes these hooks. Keep the
- * return *shape* identical to the mock so the UI keeps working.
+ * Composite hooks (`useDashboard`, `useReports`) fan out via `Promise.all`.
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
-import { DASHBOARD, INSIGHT, REPORTS, TX_GROUPS } from './mock/data';
+import { api } from './api';
+import {
+  deriveBehavior,
+  deriveEvolution,
+  economiaFromSummary,
+  groupByDay,
+  placeholderGoal,
+  toBankSpend,
+  toBanks,
+  toCategories,
+  toGoal,
+  toInsightDetail,
+  toMonthPoints,
+  toSpendSlices,
+  toTransactions,
+} from './transform';
+import type {
+  ApiBank,
+  ApiCategory,
+  ApiGoal,
+  ApiInsight,
+  ApiMonthlyComparison,
+  ApiReportByBank,
+  ApiReportByCategory,
+  ApiReportSummary,
+  ApiTransaction,
+} from './api-types';
 import {
   TransactionTypeEnum,
+  type Bank,
+  type Category,
   type Dashboard,
   type InsightDetail,
   type Reports,
+  type Transaction,
   type TransactionGroup,
 } from './types';
-
-/** Simulate network latency so loading states are exercised in dev. */
-function resolve<T>(data: T, ms = 0): Promise<T> {
-  return ms > 0
-    ? new Promise((r) => setTimeout(() => r(data), ms))
-    : Promise.resolve(data);
-}
 
 export const queryKeys = {
   dashboard: ['dashboard'] as const,
   transactions: ['transactions'] as const,
   reports: ['reports'] as const,
   insight: ['insight'] as const,
+  categories: ['categories'] as const,
+  banks: ['banks'] as const,
 };
 
-/** Dashboard / Início payload. */
+/** Current month as 'YYYY-MM'. */
+function currentMonth(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Previous month as 'YYYY-MM'. */
+function previousMonth(now: Date = new Date()): string {
+  const d = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Bounds [start, end) ISO dates for a 'YYYY-MM' month. */
+function monthRange(month: string): { startDate: string; endDate: string } {
+  const [y, m] = month.split('-').map(Number);
+  const start = new Date(y, m - 1, 1);
+  const end = new Date(y, m, 1);
+  return { startDate: start.toISOString(), endDate: end.toISOString() };
+}
+
+// ── Catalog (categories + banks) ────────────────────────────────────────────
+
+export function useCategories() {
+  return useQuery<Category[]>({
+    queryKey: queryKeys.categories,
+    queryFn: async () => toCategories((await api.get<ApiCategory[]>('/categories')).data),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useBanks() {
+  return useQuery<Bank[]>({
+    queryKey: queryKeys.banks,
+    queryFn: async () => toBanks((await api.get<ApiBank[]>('/banks')).data),
+    staleTime: 5 * 60_000,
+  });
+}
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+
+/** Dashboard / Início payload — composed from several endpoints. */
 export function useDashboard() {
   return useQuery<Dashboard>({
     queryKey: queryKeys.dashboard,
-    // SWAP: api.get('/reports/dashboard')
-    queryFn: () => resolve(DASHBOARD),
+    queryFn: async () => {
+      const month = currentMonth();
+      const [summary, byCategory, monthly, goals, transactions] = await Promise.all([
+        api.get<ApiReportSummary>('/reports/summary', { params: { month } }),
+        api.get<ApiReportByCategory[]>('/reports/by-category', { params: { month, type: 'expense' } }),
+        api.get<ApiMonthlyComparison[]>('/reports/monthly-comparison', { params: { months: 6 } }),
+        api.get<ApiGoal[]>('/goals'),
+        api.get<ApiTransaction[]>('/transactions'),
+      ]);
+
+      const recentRaw = [...transactions.data]
+        .sort((a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime())
+        .slice(0, 10);
+
+      return {
+        summary: {
+          receitas: summary.data.receitas,
+          despesas: summary.data.despesas,
+          saldo: summary.data.saldo,
+        },
+        evolution: deriveEvolution(monthly.data),
+        spend: toSpendSlices(byCategory.data),
+        goal: goals.data[0] ? toGoal(goals.data[0]) : placeholderGoal(),
+        recent: toTransactions(recentRaw),
+      };
+    },
   });
 }
 
-/** Transactions grouped by day. */
+// ── Transactions ────────────────────────────────────────────────────────────
+
+/** Transactions grouped by day (Transações screen). */
 export function useTransactions() {
   return useQuery<TransactionGroup[]>({
     queryKey: queryKeys.transactions,
-    // SWAP: api.get('/transactions') then group by day client- or server-side
-    queryFn: () => resolve(TX_GROUPS),
+    queryFn: async () => groupByDay((await api.get<ApiTransaction[]>('/transactions')).data),
   });
 }
 
-/** Reports payload. */
+// ── Reports ─────────────────────────────────────────────────────────────────
+
+/** Reports payload — composed from summary / by-category / by-bank / monthly. */
 export function useReports() {
   return useQuery<Reports>({
     queryKey: queryKeys.reports,
-    // SWAP: combine /reports/summary, /by-category, /by-bank, /monthly-comparison
-    queryFn: () => resolve(REPORTS),
+    queryFn: async () => {
+      const month = currentMonth();
+      const prev = previousMonth();
+      const curRange = monthRange(month);
+      const prevRange = monthRange(prev);
+
+      const [summary, byCategory, byBank, monthly, curTx, prevTx] = await Promise.all([
+        api.get<ApiReportSummary>('/reports/summary', { params: { month } }),
+        api.get<ApiReportByCategory[]>('/reports/by-category', { params: { month, type: 'expense' } }),
+        api.get<ApiReportByBank[]>('/reports/by-bank', { params: { month } }),
+        api.get<ApiMonthlyComparison[]>('/reports/monthly-comparison', { params: { months: 6 } }),
+        api.get<ApiTransaction[]>('/transactions', { params: curRange }),
+        api.get<ApiTransaction[]>('/transactions', { params: prevRange }),
+      ]);
+
+      return {
+        economia: economiaFromSummary(summary.data),
+        months: toMonthPoints(monthly.data),
+        spend: toSpendSlices(byCategory.data),
+        byBank: toBankSpend(byBank.data),
+        behavior: deriveBehavior(curTx.data, prevTx.data),
+      };
+    },
   });
 }
 
-/** Behavioral insight detail. */
+// ── Insight ─────────────────────────────────────────────────────────────────
+
+/** Behavioral insight detail — derived from GET /insights (see transform). */
 export function useInsight() {
   return useQuery<InsightDetail>({
     queryKey: queryKeys.insight,
-    // SWAP: api.get('/insights/:id')
-    queryFn: () => resolve(INSIGHT),
+    queryFn: async () => toInsightDetail((await api.get<ApiInsight[]>('/insights')).data),
   });
 }
+
+// ── Create transaction ──────────────────────────────────────────────────────
 
 export interface CreateTransactionInput {
   type: TransactionTypeEnum;
@@ -82,31 +193,28 @@ export interface CreateTransactionInput {
 }
 
 /**
- * Create-transaction mutation. Today it optimistically nudges the cached
- * dashboard summary so the UI reflects the new entry; later it POSTs to the API
- * and invalidates the affected queries.
+ * Create-transaction mutation. POSTs to /transactions with `transactionDate`
+ * set to now (ISO), then invalidates the dashboard + transactions + reports
+ * queries so the UI refetches the authoritative state.
  */
 export function useCreateTransaction() {
   const qc = useQueryClient();
-  return useMutation({
-    // SWAP: api.post('/transactions', payload)
-    mutationFn: (input: CreateTransactionInput) => resolve(input),
-    onSuccess: (input) => {
-      qc.setQueryData<Dashboard>(queryKeys.dashboard, (prev) => {
-        if (!prev) return prev;
-        const receitas =
-          input.type === TransactionTypeEnum.INCOME
-            ? prev.summary.receitas + input.value
-            : prev.summary.receitas;
-        const despesas =
-          input.type === TransactionTypeEnum.EXPENSE
-            ? prev.summary.despesas + input.value
-            : prev.summary.despesas;
-        return {
-          ...prev,
-          summary: { receitas, despesas, saldo: receitas - despesas },
-        };
+  return useMutation<Transaction, unknown, CreateTransactionInput>({
+    mutationFn: async (input) => {
+      const { data } = await api.post<ApiTransaction>('/transactions', {
+        bankId: input.bankId,
+        categoryId: input.categoryId,
+        amount: input.value,
+        type: input.type,
+        description: input.description,
+        transactionDate: new Date().toISOString(),
       });
+      return toTransactions([data])[0];
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: queryKeys.dashboard });
+      void qc.invalidateQueries({ queryKey: queryKeys.transactions });
+      void qc.invalidateQueries({ queryKey: queryKeys.reports });
     },
   });
 }
