@@ -22,21 +22,28 @@ describe('BanksService', () => {
   });
 
   describe('create', () => {
-    it('seeds currentBalance from initialBalance', async () => {
+    it('seeds currentBalance from initialBalance and keeps short/color', async () => {
       repo.create!.mockImplementation((v: Partial<Bank>) => v);
       repo.save!.mockImplementation((v: Bank) => Promise.resolve(v));
 
-      await service.create('user-1', { name: 'Nubank', initialBalance: 500 });
+      await service.create('user-1', {
+        name: 'Nubank',
+        short: 'Nu',
+        color: '#8A05BE',
+        initialBalance: 500,
+      });
 
       expect(repo.create).toHaveBeenCalledWith({
         userId: 'user-1',
         name: 'Nubank',
+        short: 'Nu',
+        color: '#8A05BE',
         initialBalance: 500,
         currentBalance: 500,
       });
     });
 
-    it('defaults both balances to 0 when initialBalance is omitted', async () => {
+    it('defaults balances to 0 and short/color to null when omitted', async () => {
       repo.create!.mockImplementation((v: Partial<Bank>) => v);
       repo.save!.mockImplementation((v: Bank) => Promise.resolve(v));
 
@@ -45,6 +52,8 @@ describe('BanksService', () => {
       expect(repo.create).toHaveBeenCalledWith({
         userId: 'user-1',
         name: 'Wallet',
+        short: null,
+        color: null,
         initialBalance: 0,
         currentBalance: 0,
       });

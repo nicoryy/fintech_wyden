@@ -19,12 +19,12 @@ const mockedBcrypt = bcrypt as unknown as {
 
 describe('AuthService', () => {
   let service: AuthService;
-  let usersService: { findByEmail: jest.Mock };
+  let usersService: { findByEmail: jest.Mock; findOne: jest.Mock };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let config: { get: jest.Mock };
 
   beforeEach(async () => {
-    usersService = { findByEmail: jest.fn() };
+    usersService = { findByEmail: jest.fn(), findOne: jest.fn() };
     jwtService = { sign: jest.fn(), verify: jest.fn() };
     config = { get: jest.fn() };
 
@@ -146,6 +146,24 @@ describe('AuthService', () => {
       await expect(service.refresh('valid-token')).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+  });
+
+  describe('me', () => {
+    it('returns the sanitized profile of the current user', async () => {
+      const user = makeUser({
+        id: 'user-9',
+        name: 'Ana',
+        email: 'ana@b.com',
+        passwordHash: 'secret-hash',
+      });
+      usersService.findOne.mockResolvedValue(user);
+
+      const result = await service.me('user-9');
+
+      expect(usersService.findOne).toHaveBeenCalledWith('user-9');
+      expect(result).toEqual({ id: 'user-9', name: 'Ana', email: 'ana@b.com' });
+      expect(result).not.toHaveProperty('passwordHash');
     });
   });
 });

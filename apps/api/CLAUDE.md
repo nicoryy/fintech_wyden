@@ -62,9 +62,14 @@ Todas protegidas por JwtAuthGuard, isoladas por `userId`. Mês default = mês at
 - synchronize: true apenas em development/test
 - Migrations para production: `npm run migration:generate` e `npm run migration:run`
 
+## Registro e bancos padrão
+- `POST /users/register` cria o usuário E **seeda 6 contas bancárias padrão** (Nubank, Banco do Brasil, Caixa, Itaú, Inter, Dinheiro — ver `modules/banks/default-banks.ts`) com `short`/`color` alinhados ao design, para o app ter contas logo de cara.
+- A entidade `Bank` tem `short` (rótulo curto do tile, ex. "Nu") e `color` (hex do tile), ambos nullable; `CreateBankDto` aceita os dois opcionalmente.
+
 ## Endpoints base
 - POST /api/v1/auth/login
 - POST /api/v1/auth/refresh
+- GET /api/v1/auth/me  (perfil do usuário logado — { id, name, email })
 - POST /api/v1/users/register
 - GET/PATCH/DELETE /api/v1/users/:id
 - CRUD /api/v1/banks

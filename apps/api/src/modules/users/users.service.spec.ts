@@ -4,6 +4,8 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { User } from './entities/user.entity';
+import { Bank } from '../banks/entities/bank.entity';
+import { DEFAULT_BANKS } from '../banks/default-banks';
 import { createMockRepo, makeUser, MockRepo } from '../../test-utils/mock-repo';
 
 jest.mock('bcrypt');
@@ -14,13 +16,16 @@ const mockedBcrypt = bcrypt as unknown as { hash: jest.Mock };
 describe('UsersService', () => {
   let service: UsersService;
   let repo: MockRepo<User>;
+  let banksRepo: MockRepo<Bank>;
 
   beforeEach(async () => {
     repo = createMockRepo<User>();
+    banksRepo = createMockRepo<Bank>();
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
         { provide: getRepositoryToken(User), useValue: repo },
+        { provide: getRepositoryToken(Bank), useValue: banksRepo },
       ],
     }).compile();
 
@@ -42,7 +47,11 @@ describe('UsersService', () => {
       repo.findOne!.mockResolvedValue(null);
       mockedBcrypt.hash.mockResolvedValue('hashed');
       repo.create!.mockImplementation((v: Partial<User>) => v);
-      repo.save!.mockImplementation((v: User) => Promise.resolve(v));
+      repo.save!.mockImplementation((v: User) =>
+        Promise.resolve({ ...v, id: 'user-1' }),
+      );
+      banksRepo.create!.mockImplementation((v: Partial<Bank>) => v);
+      banksRepo.save!.mockResolvedValue([]);
 
       const result = await service.create({
         name: 'A',
@@ -57,6 +66,33 @@ describe('UsersService', () => {
         passwordHash: 'hashed',
       });
       expect(result.passwordHash).toBe('hashed');
+    });
+
+    it('seeds the default bank accounts for the new user', async () => {
+      repo.findOne!.mockResolvedValue(null);
+      mockedBcrypt.hash.mockResolvedValue('hashed');
+      repo.create!.mockImplementation((v: Partial<User>) => v);
+      repo.save!.mockImplementation((v: User) =>
+        Promise.resolve({ ...v, id: 'user-1' }),
+      );
+      banksRepo.create!.mockImplementation((v: Partial<Bank>) => v);
+      banksRepo.save!.mockResolvedValue([]);
+
+      await service.create({
+        name: 'A',
+        email: 'new@b.com',
+        password: 'secret',
+      });
+
+      expect(banksRepo.create).toHaveBeenCalledTimes(DEFAULT_BANKS.length);
+      // Each default bank is tied to the new user's id.
+      expect(banksRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-1', name: 'Nubank' }),
+      );
+      // Saved as a single batch.
+      expect(banksRepo.save).toHaveBeenCalledTimes(1);
+      const savedArg = banksRepo.save!.mock.calls[0][0] as unknown[];
+      expect(savedArg).toHaveLength(DEFAULT_BANKS.length);
     });
   });
 

@@ -7,6 +7,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import { User } from './entities/user.entity';
+import { Bank } from '../banks/entities/bank.entity';
+import { DEFAULT_BANKS } from '../banks/default-banks';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
@@ -15,6 +17,8 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private readonly usersRepo: Repository<User>,
+    @InjectRepository(Bank)
+    private readonly banksRepo: Repository<Bank>,
   ) {}
 
   async create(dto: CreateUserDto): Promise<User> {
@@ -24,12 +28,22 @@ export class UsersService {
     if (existing) throw new ConflictException('Email already in use');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = this.usersRepo.create({
-      name: dto.name,
-      email: dto.email,
-      passwordHash,
-    });
-    return this.usersRepo.save(user);
+    const user = await this.usersRepo.save(
+      this.usersRepo.create({
+        name: dto.name,
+        email: dto.email,
+        passwordHash,
+      }),
+    );
+
+    // Seed the default bank accounts so a fresh account is usable immediately.
+    await this.banksRepo.save(
+      DEFAULT_BANKS.map((b) =>
+        this.banksRepo.create({ ...b, userId: user.id }),
+      ),
+    );
+
+    return user;
   }
 
   findAll(): Promise<User[]> {

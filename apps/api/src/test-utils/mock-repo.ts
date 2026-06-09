@@ -63,6 +63,8 @@ export const makeBank = (overrides: Partial<Bank> = {}): Bank => {
     userId: 'user-1',
     user: undefined as unknown as User,
     name: 'Test Bank',
+    short: null,
+    color: null,
     initialBalance: 0,
     currentBalance: 0,
     transactions: [],

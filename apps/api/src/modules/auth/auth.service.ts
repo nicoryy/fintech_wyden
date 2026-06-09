@@ -35,6 +35,12 @@ export class AuthService {
     };
   }
 
+  /** Current authenticated user's public profile (for GET /auth/me). */
+  async me(userId: string) {
+    const user = await this.usersService.findOne(userId);
+    return { id: user.id, name: user.name, email: user.email };
+  }
+
   /**
    * Validates a refresh token and issues a fresh access token. Refresh tokens
    * are stateless (not persisted) in Phase 1 — they are verified by signature

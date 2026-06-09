@@ -16,6 +16,8 @@ export class BanksService {
     const bank = this.banksRepo.create({
       userId,
       name: dto.name,
+      short: dto.short ?? null,
+      color: dto.color ?? null,
       initialBalance: dto.initialBalance ?? 0,
       currentBalance: dto.initialBalance ?? 0,
     });
