@@ -5,8 +5,16 @@
   "scripts": {
     "mobile": "npm run start --workspace=apps/mobile",
     "api": "npm run start:dev --workspace=apps/api",
-    "docker:up": "docker-compose up -d",
-    "docker:down": "docker-compose down"
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:build": "docker compose build",
+    "docker:logs": "docker compose logs -f",
+    "typecheck": "npm run typecheck --workspace=apps/api && npm run typecheck --workspace=apps/mobile",
+    "lint": "npm run lint:ci --workspace=apps/api && npm run lint --workspace=apps/mobile",
+    "test": "npm run test --workspace=apps/api && npm run test --workspace=apps/mobile",
+    "build": "npm run build --workspace=apps/api",
+    "ci": "npm run typecheck && npm run lint && npm run test && npm run build",
+    "setup:hooks": "git config core.hooksPath .githooks"
   },
   "comment:overrides": "React Native 0.85.3 bundles react-native-renderer@19.2.3 and peer-requires react@^19.2.3, so the whole React family MUST be exactly 19.2.3 or the app crashes with 'Incompatible React versions' (react vs react-native-renderer). react-dom is only an optional peer (web) but its latest pulled react up to 19.2.7; we pin it down too. react-test-renderer must also match so jest's renderer agrees ('Can't access .root on unmounted test renderer'). Keep all four locked together.",
   "overrides": {

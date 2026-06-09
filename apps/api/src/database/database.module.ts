@@ -21,7 +21,12 @@ import { Goal } from '../modules/goals/entities/goal.entity';
         password: config.get('DB_PASS', 'wyden_secret'),
         database: config.get('DB_NAME', 'wyden_db'),
         entities: [User, Bank, Category, Transaction, Insight, Goal],
-        synchronize: config.get('NODE_ENV') !== 'production',
+        // Schema sync defaults to off in production. DB_SYNCHRONIZE lets the
+        // local-first Docker stack (which runs NODE_ENV=production) still
+        // auto-create the schema; real prod should use migrations instead.
+        synchronize:
+          config.get('DB_SYNCHRONIZE') === 'true' ||
+          config.get('NODE_ENV') !== 'production',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),

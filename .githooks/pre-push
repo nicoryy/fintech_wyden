@@ -1,0 +1,16 @@
+#!/bin/sh
+# Local-first gate: run the same checks as CI before anything leaves the machine.
+# Mirrors .github/workflows/ci.yml. Enable once with: npm run setup:hooks
+#
+# Skip in a pinch with: git push --no-verify
+
+echo "🔍 pre-push: running local CI (typecheck · lint · test · build)…"
+
+if ! npm run ci; then
+  echo ""
+  echo "❌ pre-push blocked: local CI failed. Fix the issues above, or bypass with --no-verify."
+  exit 1
+fi
+
+echo "✅ pre-push: all checks passed."
+exit 0
