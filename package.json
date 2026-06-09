@@ -1,0 +1,11 @@
+{
+  "name": "fintech-wyden",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "mobile": "npm run start --workspace=apps/mobile",
+    "api": "npm run start:dev --workspace=apps/api",
+    "docker:up": "docker-compose up -d",
+    "docker:down": "docker-compose down"
+  }
+}
