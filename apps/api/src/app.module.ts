@@ -7,6 +7,7 @@ import { UsersModule } from './modules/users/users.module';
 import { BanksModule } from './modules/banks/banks.module';
 import { CategoriesModule } from './modules/categories/categories.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { InsightsModule } from './modules/insights/insights.module';
 import { GoalsModule } from './modules/goals/goals.module';
 
@@ -20,6 +21,7 @@ import { GoalsModule } from './modules/goals/goals.module';
     BanksModule,
     CategoriesModule,
     TransactionsModule,
+    ReportsModule,
     InsightsModule,
     GoalsModule,
   ],

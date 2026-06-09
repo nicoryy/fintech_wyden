@@ -6,11 +6,13 @@ import {
   Patch,
   Param,
   Delete,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
+import { QueryTransactionDto } from './dto/query-transaction.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../../common/decorators/current-user.decorator';
 import type { JwtPayload } from '../../common/types/jwt-payload.type';
@@ -26,8 +28,11 @@ export class TransactionsController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: JwtPayload) {
-    return this.transactionsService.findAll(user.id);
+  findAll(
+    @CurrentUser() user: JwtPayload,
+    @Query() filters: QueryTransactionDto,
+  ) {
+    return this.transactionsService.findAll(user.id, filters);
   }
 
   @Get(':id')

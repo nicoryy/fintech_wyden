@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Body,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -9,6 +10,7 @@ import {
 import { Request as ExpressRequest } from 'express';
 import { AuthService } from './auth.service';
 import { LocalAuthGuard } from './guards/local-auth.guard';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import type { User } from '../users/entities/user.entity';
 
 @Controller('auth')
@@ -20,5 +22,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   login(@Request() req: ExpressRequest & { user: User }) {
     return this.authService.login(req.user);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refresh(dto.refresh_token);
   }
 }
