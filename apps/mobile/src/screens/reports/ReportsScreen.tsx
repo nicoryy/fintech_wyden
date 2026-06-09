@@ -8,9 +8,9 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Press, ProgressBar, Txt } from '../../components';
-import { bankById, catById } from '../../services/mock/catalog';
+import { useCatalog } from '../../context/CatalogContext';
 import { useReports } from '../../services/hooks';
-import type { BankSpend, MonthPoint, Reports, SpendSlice } from '../../services/types';
+import type { Bank, BankSpend, Category, MonthPoint, Reports, SpendSlice } from '../../services/types';
 import { brl } from '../../utils/format';
 import { colors, radii, cardShadow, withAlpha } from '../../theme/tokens';
 
@@ -21,6 +21,7 @@ export function ReportsScreen() {
   const router = useRouter();
   const [period, setPeriod] = useState('Mês');
   const { data } = useReports();
+  const { catById, bankById } = useCatalog();
 
   if (!data) return <View style={styles.flex} />;
 
@@ -35,8 +36,8 @@ export function ReportsScreen() {
       <EconomiaHero data={data} />
       <MonthlyChart months={data.months} />
       <BehaviorCompare behavior={data.behavior} onOpen={() => router.push('/insight')} />
-      <CategoryBars spend={data.spend} />
-      <BankBreakdown byBank={data.byBank} />
+      <CategoryBars spend={data.spend} catById={catById} />
+      <BankBreakdown byBank={data.byBank} bankById={bankById} />
     </ScrollView>
   );
 }
@@ -156,7 +157,13 @@ function CompareStat({ label, value, good = true }: { label: string; value: stri
   );
 }
 
-function CategoryBars({ spend }: { spend: SpendSlice[] }) {
+function CategoryBars({
+  spend,
+  catById,
+}: {
+  spend: SpendSlice[];
+  catById: (id: string) => Category;
+}) {
   const max = Math.max(...spend.map((s) => s.pct));
   return (
     <View style={styles.card}>
@@ -183,7 +190,13 @@ function CategoryBars({ spend }: { spend: SpendSlice[] }) {
   );
 }
 
-function BankBreakdown({ byBank }: { byBank: BankSpend[] }) {
+function BankBreakdown({
+  byBank,
+  bankById,
+}: {
+  byBank: BankSpend[];
+  bankById: (id: string) => Bank;
+}) {
   const max = Math.max(...byBank.map((b) => b.value));
   return (
     <View style={styles.card}>

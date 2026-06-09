@@ -8,9 +8,9 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card, Donut, Icon, Press, ProgressBar, ProgressRing, Sparkline, Txt } from '../../components';
-import { catById } from '../../services/mock/catalog';
+import { useCatalog } from '../../context/CatalogContext';
 import { useDashboard } from '../../services/hooks';
-import type { Dashboard, SpendSlice, Transaction } from '../../services/types';
+import type { Category, Dashboard, SpendSlice, Transaction } from '../../services/types';
 import { brl, brlParts } from '../../utils/format';
 import { colors, radii, tileShadow, withAlpha } from '../../theme/tokens';
 
@@ -20,6 +20,7 @@ export function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { data } = useDashboard();
+  const { catById } = useCatalog();
 
   if (!data) return <View style={styles.flex} />;
 
@@ -37,9 +38,9 @@ export function DashboardScreen() {
         <Header />
         <BalanceCard data={data} />
         <InsightCard onOpen={() => router.push('/insight')} />
-        <CategoryCard spend={data.spend} onSeeAll={() => router.navigate('/(tabs)/reports')} />
+        <CategoryCard spend={data.spend} catById={catById} onSeeAll={() => router.navigate('/(tabs)/reports')} />
         <GoalCard data={data} />
-        <RecentCard recent={data.recent} onSeeAll={() => router.navigate('/(tabs)/transactions')} />
+        <RecentCard recent={data.recent} catById={catById} onSeeAll={() => router.navigate('/(tabs)/transactions')} />
       </View>
     </ScrollView>
   );
@@ -173,7 +174,15 @@ function InsightCard({ onOpen }: { onOpen: () => void }) {
 }
 
 // ── Spend by category ───────────────────────────────────────
-function CategoryCard({ spend, onSeeAll }: { spend: SpendSlice[]; onSeeAll: () => void }) {
+function CategoryCard({
+  spend,
+  catById,
+  onSeeAll,
+}: {
+  spend: SpendSlice[];
+  catById: (id: string) => Category;
+  onSeeAll: () => void;
+}) {
   const slices = spend.map((x) => ({ pct: x.pct, color: catById(x.categoryId).color }));
   const total = spend.reduce((s, x) => s + x.value, 0);
   return (
@@ -241,7 +250,15 @@ function GoalCard({ data }: { data: Dashboard }) {
 }
 
 // ── Recent transactions ─────────────────────────────────────
-function RecentCard({ recent, onSeeAll }: { recent: Transaction[]; onSeeAll: () => void }) {
+function RecentCard({
+  recent,
+  catById,
+  onSeeAll,
+}: {
+  recent: Transaction[];
+  catById: (id: string) => Category;
+  onSeeAll: () => void;
+}) {
   const items = recent.slice(0, 4);
   return (
     <Card pad={0}>

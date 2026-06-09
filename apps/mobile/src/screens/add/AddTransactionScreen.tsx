@@ -12,9 +12,9 @@ import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Press, Txt } from '../../components';
-import { BANKS, CATS, INCOME_CATS } from '../../services/mock/catalog';
+import { useCatalog } from '../../context/CatalogContext';
 import { useCreateTransaction } from '../../services/hooks';
-import { TransactionTypeEnum, type Category } from '../../services/types';
+import { TransactionTypeEnum, type Bank, type Category } from '../../services/types';
 import { brl, brlParts } from '../../utils/format';
 import { colors, tileShadow, withAlpha } from '../../theme/tokens';
 
@@ -24,18 +24,23 @@ export function AddTransactionScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const createTx = useCreateTransaction();
+  const { expenseCats, incomeCats, banks } = useCatalog();
 
   const [type, setType] = useState<TxType>('despesa');
   const [cents, setCents] = useState(0);
   const [cat, setCat] = useState<string | null>(null);
-  const [bank, setBank] = useState('nubank');
+  const [selectedBank, setSelectedBank] = useState<string | null>(null);
   const [desc, setDesc] = useState('');
   const [saved, setSaved] = useState(false);
 
+  // Effective bank: the user's pick, else the first catalog bank (no state sync).
+  const bank = selectedBank ?? banks[0]?.id ?? null;
+  const setBank = setSelectedBank;
+
   const income = type === 'receita';
-  const cats = income ? INCOME_CATS : CATS;
+  const cats = income ? incomeCats : expenseCats;
   const accent = income ? colors.greenInk : colors.orange;
-  const valid = cents > 0 && !!cat;
+  const valid = cents > 0 && !!cat && !!bank;
 
   const close = () => router.back();
 
@@ -54,7 +59,7 @@ export function AddTransactionScreen() {
   };
 
   const save = () => {
-    if (!valid || !cat) return;
+    if (!valid || !cat || !bank) return;
     setSaved(true);
     createTx.mutate({
       type: income ? TransactionTypeEnum.INCOME : TransactionTypeEnum.EXPENSE,
@@ -111,7 +116,7 @@ export function AddTransactionScreen() {
         <View style={[styles.fieldLabelWrap, { paddingTop: 14 }]}>
           <Txt style={styles.fieldLabel}>Conta / Banco</Txt>
         </View>
-        <BankRow selected={bank} onSelect={setBank} />
+        <BankRow banks={banks} selected={bank} onSelect={setBank} />
 
         {/* details */}
         <View style={styles.detailsBlock}>
@@ -282,7 +287,15 @@ function ChipRow({
   );
 }
 
-function BankRow({ selected, onSelect }: { selected: string; onSelect: (id: string) => void }) {
+function BankRow({
+  banks,
+  selected,
+  onSelect,
+}: {
+  banks: Bank[];
+  selected: string | null;
+  onSelect: (id: string) => void;
+}) {
   return (
     <ScrollView
       horizontal
@@ -290,7 +303,7 @@ function BankRow({ selected, onSelect }: { selected: string; onSelect: (id: stri
       style={styles.chipScroll}
       contentContainerStyle={styles.bankRowContent}
     >
-      {BANKS.map((b) => {
+      {banks.map((b) => {
         const active = selected === b.id;
         return (
           <Press

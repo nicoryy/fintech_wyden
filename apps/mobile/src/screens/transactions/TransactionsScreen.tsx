@@ -7,9 +7,9 @@ import { View, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Press, Txt } from '../../components';
-import { bankById, catById } from '../../services/mock/catalog';
+import { useCatalog } from '../../context/CatalogContext';
 import { useTransactions } from '../../services/hooks';
-import type { Transaction, TransactionGroup } from '../../services/types';
+import type { Bank, Category, Transaction, TransactionGroup } from '../../services/types';
 import { brl } from '../../utils/format';
 import { colors, radii, cardShadow, tileShadow, withAlpha } from '../../theme/tokens';
 
@@ -21,6 +21,7 @@ export function TransactionsScreen() {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<Filter>('todas');
   const { data } = useTransactions();
+  const { catById, bankById } = useCatalog();
 
   const groups = useMemo(() => filterGroups(data ?? [], filter), [data, filter]);
 
@@ -55,7 +56,7 @@ export function TransactionsScreen() {
               <View style={styles.groupCard}>
                 {g.items.map((t, i) => (
                   <View key={t.id} style={i > 0 ? styles.rowDivider : undefined}>
-                    <TxRow t={t} />
+                    <TxRow t={t} cat={catById(t.categoryId)} bank={bankById(t.bankId)} />
                   </View>
                 ))}
               </View>
@@ -167,9 +168,9 @@ function FilterChips({ value, onChange }: { value: Filter; onChange: (f: Filter)
   );
 }
 
-function TxRow({ t }: { t: Transaction }) {
-  const c = catById(t.categoryId);
-  const b = bankById(t.bankId);
+function TxRow({ t, cat, bank }: { t: Transaction; cat: Category; bank: Bank }) {
+  const c = cat;
+  const b = bank;
   const income = t.amount > 0;
   return (
     <View style={styles.txRow}>
