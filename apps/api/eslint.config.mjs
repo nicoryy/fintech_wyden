@@ -33,7 +33,12 @@ export default tseslint.config(
     },
   },
   {
-    files: ['**/*.spec.ts', '**/*.e2e-spec.ts', 'test/**/*.ts'],
+    files: [
+      '**/*.spec.ts',
+      '**/*.e2e-spec.ts',
+      'test/**/*.ts',
+      'src/test-utils/**/*.ts',
+    ],
     rules: {
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-member-access': 'off',
