@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WYDEN — Finanças conscientes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --bg: #F3F4F6;
+    --card: #FFFFFF;
+    --ink: #1B1D21;
+    --ink-2: #62686F;
+    --muted: #9AA0A7;
+    --line: #ECEEF0;
+    --orange: #F0742B;
+    --orange-wash: #FDEEE3;
+    --purple: #7C5CFC;
+    --purple-ink: #6A45E8;
+    --purple-wash: #F3F0FE;
+    --purple-line: #E2DBFC;
+    --purple-chip: #EBE5FE;
+    --seg-bg: #EAECEF;
+    /* green family is injected at runtime from the accent tweak */
+    --green: #17A06A;
+    --green-ink: #17A06A;
+    --green-wash: #17A06A14;
+    --green-wash2: #17A06A20;
+    --r-card: 22px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: #E7E9EC;
+    font-family: 'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  #stage {
+    min-height: 100%; display: grid; place-items: center; padding: 28px 0;
+  }
+  button { font-family: inherit; border: none; background: none; padding: 0; cursor: pointer; color: inherit; }
+  .press { transition: transform .12s ease, opacity .12s ease; -webkit-tap-highlight-color: transparent; }
+  .press:active { transform: scale(.96); }
+  .fab:active { transform: scale(.93); }
+  .ghost-btn { background: none; }
+
+  /* numeric keypad keys */
+  .key {
+    height: 54px; border-radius: 16px; display: grid; place-items: center;
+    font-size: 26px; font-weight: 700; color: var(--ink);
+    background: transparent; transition: background .12s ease, transform .1s ease;
+  }
+  .key:active { background: var(--line); transform: scale(.97); }
+
+  /* hide scrollbars on horizontal chip rows + main scroll */
+  .hscroll::-webkit-scrollbar, .scroll-area::-webkit-scrollbar, .sheet::-webkit-scrollbar { display: none; }
+  .hscroll, .scroll-area, .sheet { scrollbar-width: none; }
+
+  /* animations */
+  @keyframes sheetUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+  @keyframes scrimIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes popIn { 0% { transform: scale(.6); opacity: 0; } 60% { transform: scale(1.08); } 100% { transform: scale(1); opacity: 1; } }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  .add-sheet { animation: sheetUp .34s cubic-bezier(.32,.72,.24,1); }
+  .add-sheet .scrim { animation: scrimIn .3s ease; }
+  .sheet { animation: sheetUp .36s cubic-bezier(.32,.72,.24,1); }
+  .scrim { animation: scrimIn .3s ease; }
+  .success-pop { animation: fadeIn .2s ease; }
+  .success-ring { animation: popIn .42s cubic-bezier(.34,1.56,.64,1); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .add-sheet, .sheet, .scrim, .success-pop, .success-ring { animation: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div id="stage"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="frames/ios-frame.jsx"></script>
+  <script type="text/babel" src="frames/tweaks-panel.jsx"></script>
+  <script type="text/babel" src="app/icons.jsx"></script>
+  <script type="text/babel" src="app/data.jsx"></script>
+  <script type="text/babel" src="app/home.jsx"></script>
+  <script type="text/babel" src="app/add.jsx"></script>
+  <script type="text/babel" src="app/insight.jsx"></script>
+  <script type="text/babel" src="app/transacoes.jsx"></script>
+  <script type="text/babel" src="app/relatorios.jsx"></script>
+  <script type="text/babel" src="app/app.jsx"></script>
+
+  <script type="text/babel" data-presets="react">
+    function Root() {
+      return (
+        <IOSDevice>
+          <App />
+        </IOSDevice>
+      );
+    }
+    ReactDOM.createRoot(document.getElementById('stage')).render(<Root />);
+  </script>
+</body>
+</html>
