@@ -23,7 +23,10 @@ export class GoalsService {
   }
 
   findAll(userId: string): Promise<Goal[]> {
-    return this.goalsRepo.find({ where: { userId }, order: { createdAt: 'DESC' } });
+    return this.goalsRepo.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async findOne(id: string, userId: string): Promise<Goal> {

@@ -9,11 +9,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET', 'change-this-secret-in-production'),
+      secretOrKey: config.get<string>(
+        'JWT_SECRET',
+        'change-this-secret-in-production',
+      ),
     });
   }
 
-  async validate(payload: { sub: string; email: string }) {
+  validate(payload: { sub: string; email: string }): {
+    id: string;
+    email: string;
+  } {
     return { id: payload.sub, email: payload.email };
   }
 }

@@ -1,4 +1,10 @@
-import { IsString, IsNumber, IsOptional, MaxLength, Min } from 'class-validator';
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateBankDto {
   @IsString()

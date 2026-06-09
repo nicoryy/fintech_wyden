@@ -1,4 +1,8 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
@@ -14,11 +18,17 @@ export class UsersService {
   ) {}
 
   async create(dto: CreateUserDto): Promise<User> {
-    const existing = await this.usersRepo.findOne({ where: { email: dto.email } });
+    const existing = await this.usersRepo.findOne({
+      where: { email: dto.email },
+    });
     if (existing) throw new ConflictException('Email already in use');
 
     const passwordHash = await bcrypt.hash(dto.password, 10);
-    const user = this.usersRepo.create({ name: dto.name, email: dto.email, passwordHash });
+    const user = this.usersRepo.create({
+      name: dto.name,
+      email: dto.email,
+      passwordHash,
+    });
     return this.usersRepo.save(user);
   }
 
@@ -39,7 +49,7 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto): Promise<User> {
     const user = await this.findOne(id);
     if (dto.password) {
-      (dto as any).passwordHash = await bcrypt.hash(dto.password, 10);
+      user.passwordHash = await bcrypt.hash(dto.password, 10);
       delete dto.password;
     }
     Object.assign(user, dto);

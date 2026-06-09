@@ -15,11 +15,20 @@ export class TransactionsService {
     private readonly banksRepo: Repository<Bank>,
   ) {}
 
-  async create(userId: string, dto: CreateTransactionDto): Promise<Transaction> {
-    const bank = await this.banksRepo.findOne({ where: { id: dto.bankId, userId } });
+  async create(
+    userId: string,
+    dto: CreateTransactionDto,
+  ): Promise<Transaction> {
+    const bank = await this.banksRepo.findOne({
+      where: { id: dto.bankId, userId },
+    });
     if (!bank) throw new NotFoundException(`Bank ${dto.bankId} not found`);
 
-    const tx = this.txRepo.create({ ...dto, userId, transactionDate: new Date(dto.transactionDate) });
+    const tx = this.txRepo.create({
+      ...dto,
+      userId,
+      transactionDate: new Date(dto.transactionDate),
+    });
     const saved = await this.txRepo.save(tx);
 
     // Update bank balance
@@ -42,12 +51,19 @@ export class TransactionsService {
   }
 
   async findOne(id: string, userId: string): Promise<Transaction> {
-    const tx = await this.txRepo.findOne({ where: { id, userId }, relations: { bank: true, category: true } });
+    const tx = await this.txRepo.findOne({
+      where: { id, userId },
+      relations: { bank: true, category: true },
+    });
     if (!tx) throw new NotFoundException(`Transaction ${id} not found`);
     return tx;
   }
 
-  async update(id: string, userId: string, dto: UpdateTransactionDto): Promise<Transaction> {
+  async update(
+    id: string,
+    userId: string,
+    dto: UpdateTransactionDto,
+  ): Promise<Transaction> {
     const tx = await this.findOne(id, userId);
     Object.assign(tx, dto);
     return this.txRepo.save(tx);

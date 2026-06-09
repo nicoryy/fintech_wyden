@@ -1,8 +1,19 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { CreateTransactionDto } from './dto/create-transaction.dto';
 import { UpdateTransactionDto } from './dto/update-transaction.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../common/types/jwt-payload.type';
 
 @UseGuards(JwtAuthGuard)
 @Controller('transactions')
@@ -10,27 +21,31 @@ export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
 
   @Post()
-  create(@Request() req, @Body() dto: CreateTransactionDto) {
-    return this.transactionsService.create(req.user.id, dto);
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateTransactionDto) {
+    return this.transactionsService.create(user.id, dto);
   }
 
   @Get()
-  findAll(@Request() req) {
-    return this.transactionsService.findAll(req.user.id);
+  findAll(@CurrentUser() user: JwtPayload) {
+    return this.transactionsService.findAll(user.id);
   }
 
   @Get(':id')
-  findOne(@Request() req, @Param('id') id: string) {
-    return this.transactionsService.findOne(id, req.user.id);
+  findOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.transactionsService.findOne(id, user.id);
   }
 
   @Patch(':id')
-  update(@Request() req, @Param('id') id: string, @Body() dto: UpdateTransactionDto) {
-    return this.transactionsService.update(id, req.user.id, dto);
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateTransactionDto,
+  ) {
+    return this.transactionsService.update(id, user.id, dto);
   }
 
   @Delete(':id')
-  remove(@Request() req, @Param('id') id: string) {
-    return this.transactionsService.remove(id, req.user.id);
+  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.transactionsService.remove(id, user.id);
   }
 }

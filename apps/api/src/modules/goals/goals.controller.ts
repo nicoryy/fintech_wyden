@@ -1,8 +1,19 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Request } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Patch,
+  Param,
+  Delete,
+  UseGuards,
+} from '@nestjs/common';
 import { GoalsService } from './goals.service';
 import { CreateGoalDto } from './dto/create-goal.dto';
 import { UpdateGoalDto } from './dto/update-goal.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../common/types/jwt-payload.type';
 
 @UseGuards(JwtAuthGuard)
 @Controller('goals')
@@ -10,27 +21,31 @@ export class GoalsController {
   constructor(private readonly goalsService: GoalsService) {}
 
   @Post()
-  create(@Request() req, @Body() dto: CreateGoalDto) {
-    return this.goalsService.create(req.user.id, dto);
+  create(@CurrentUser() user: JwtPayload, @Body() dto: CreateGoalDto) {
+    return this.goalsService.create(user.id, dto);
   }
 
   @Get()
-  findAll(@Request() req) {
-    return this.goalsService.findAll(req.user.id);
+  findAll(@CurrentUser() user: JwtPayload) {
+    return this.goalsService.findAll(user.id);
   }
 
   @Get(':id')
-  findOne(@Request() req, @Param('id') id: string) {
-    return this.goalsService.findOne(id, req.user.id);
+  findOne(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.goalsService.findOne(id, user.id);
   }
 
   @Patch(':id')
-  update(@Request() req, @Param('id') id: string, @Body() dto: UpdateGoalDto) {
-    return this.goalsService.update(id, req.user.id, dto);
+  update(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Body() dto: UpdateGoalDto,
+  ) {
+    return this.goalsService.update(id, user.id, dto);
   }
 
   @Delete(':id')
-  remove(@Request() req, @Param('id') id: string) {
-    return this.goalsService.remove(id, req.user.id);
+  remove(@CurrentUser() user: JwtPayload, @Param('id') id: string) {
+    return this.goalsService.remove(id, user.id);
   }
 }

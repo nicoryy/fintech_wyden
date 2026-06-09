@@ -1,4 +1,13 @@
-import { IsEnum, IsNumber, IsOptional, IsString, IsDateString, IsBoolean, MaxLength, Min } from 'class-validator';
+import {
+  IsEnum,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsDateString,
+  IsBoolean,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { TransactionType } from '../entities/transaction.entity';
 
 export class CreateTransactionDto {
