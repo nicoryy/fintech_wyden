@@ -8,9 +8,10 @@
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
   },
-  "comment:overrides": "react-dom (pulled transitively) requires react@^19.2.7, so React is pinned at 19.2.7. jest-expo ships react-test-renderer@19.2.3, which then loads the hoisted react@19.2.7 and mismatches ('Can't access .root on unmounted test renderer'). Force react-test-renderer to the same 19.2.7 so the test renderer and React agree.",
+  "comment:overrides": "React Native 0.85.3 bundles react-native-renderer@19.2.3 and peer-requires react@^19.2.3, so the whole React family MUST be exactly 19.2.3 or the app crashes with 'Incompatible React versions' (react vs react-native-renderer). react-dom is only an optional peer (web) but its latest pulled react up to 19.2.7; we pin it down too. react-test-renderer must also match so jest's renderer agrees ('Can't access .root on unmounted test renderer'). Keep all four locked together.",
   "overrides": {
-    "react": "19.2.7",
-    "react-test-renderer": "19.2.7"
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-test-renderer": "19.2.3"
   }
 }
