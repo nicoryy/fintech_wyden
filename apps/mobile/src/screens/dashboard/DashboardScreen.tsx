@@ -9,10 +9,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card, Donut, Icon, Press, ProgressBar, ProgressRing, Sparkline, Txt } from '../../components';
 import { useCatalog } from '../../context/CatalogContext';
-import { useDashboard } from '../../services/hooks';
+import { useOptionalAuth } from '../../context/AuthContext';
+import { useDashboard, useInsight } from '../../services/hooks';
 import type { Category, Dashboard, SpendSlice, Transaction } from '../../services/types';
 import { brl, brlParts } from '../../utils/format';
 import { colors, radii, tileShadow, withAlpha } from '../../theme/tokens';
+
+/** First name, capitalized for display: "ana lima" → "Ana". */
+function firstName(name: string | undefined | null): string {
+  const raw = name?.trim().split(/\s+/)[0];
+  if (!raw) return '';
+  return raw.charAt(0).toUpperCase() + raw.slice(1);
+}
 
 const TAB_BAR_SPACE = 110;
 
@@ -48,11 +56,12 @@ export function DashboardScreen() {
 
 // ── Header ──────────────────────────────────────────────────
 function Header() {
+  const name = firstName(useOptionalAuth()?.user?.name);
   return (
     <View style={styles.header}>
-      <View>
-        <Txt style={styles.greet}>
-          Olá, Ana! <Txt style={styles.greetWave}>👋</Txt>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <Txt numberOfLines={1} style={styles.greet}>
+          {name ? `Olá, ${name}!` : 'Olá!'} <Txt style={styles.greetWave}>👋</Txt>
         </Txt>
         <Txt style={styles.greetSub}>
           Que tal uma decisão financeira mais consciente hoje?
@@ -69,6 +78,8 @@ function Header() {
 // ── Balance card ────────────────────────────────────────────
 function BalanceCard({ data }: { data: Dashboard }) {
   const { int, dec } = brlParts(data.summary.saldo);
+  const delta = data.deltaSaldo;
+  const up = (delta ?? 0) >= 0;
   return (
     <Card pad={0} style={{ overflow: 'hidden' }}>
       <View style={styles.balanceTop}>
@@ -82,11 +93,22 @@ function BalanceCard({ data }: { data: Dashboard }) {
               R$ {int}
               <Txt style={styles.balanceCents}>,{dec}</Txt>
             </Txt>
-            <View style={styles.balanceDelta}>
-              <Icon name="arrow-up-right" size={15} stroke={colors.greenInk} sw={2.2} />
-              <Txt style={styles.deltaStrong}>R$ 620,40</Txt>
-              <Txt style={styles.deltaMuted}> vs. mês anterior</Txt>
-            </View>
+            {delta !== null ? (
+              <View style={styles.balanceDelta}>
+                <Icon
+                  name={up ? 'arrow-up-right' : 'arrow-down'}
+                  size={15}
+                  stroke={up ? colors.greenInk : colors.orange}
+                  sw={2.2}
+                />
+                <Txt style={up ? styles.deltaStrong : [styles.deltaStrong, styles.deltaNeg]}>
+                  {brl(Math.abs(delta))}
+                </Txt>
+                <Txt style={styles.deltaMuted}> vs. mês anterior</Txt>
+              </View>
+            ) : (
+              <Txt style={styles.deltaMutedOnly}>Comece a registrar para acompanhar</Txt>
+            )}
           </View>
           <View style={{ marginBottom: 2 }}>
             <Sparkline values={data.evolution} width={118} height={62} pad={4} />
@@ -132,6 +154,10 @@ function Stat({
 
 // ── Behavioral insight card (Ilustrado variant — the prototype default) ──────
 function InsightCard({ onOpen }: { onOpen: () => void }) {
+  const { data: insight } = useInsight();
+  const headline = insight?.title ?? 'Analisando seu comportamento…';
+  const sub =
+    insight?.description ?? 'Continue registrando para liberar seus insights.';
   return (
     <Press
       accessibilityLabel="Abrir insight comportamental"
@@ -146,11 +172,9 @@ function InsightCard({ onOpen }: { onOpen: () => void }) {
             </View>
             <Txt style={styles.insightKicker}>Insight comportamental</Txt>
           </View>
-          <Txt style={styles.insightHeadline}>
-            Você gastou mais por impulso nos finais de semana.
-          </Txt>
-          <Txt style={styles.insightSub}>
-            Tente definir um limite diário para esses dias.
+          <Txt style={styles.insightHeadline}>{headline}</Txt>
+          <Txt numberOfLines={2} style={styles.insightSub}>
+            {sub}
           </Txt>
         </View>
         <View style={styles.insightArt}>
@@ -185,6 +209,14 @@ function CategoryCard({
 }) {
   const slices = spend.map((x) => ({ pct: x.pct, color: catById(x.categoryId).color }));
   const total = spend.reduce((s, x) => s + x.value, 0);
+  if (spend.length === 0) {
+    return (
+      <Card>
+        <SectionRow title="Gastos por categoria" />
+        <Txt style={styles.cardEmpty}>Nenhum gasto registrado este mês.</Txt>
+      </Card>
+    );
+  }
   return (
     <Card>
       <SectionRow title="Gastos por categoria" onSeeAll={onSeeAll} />
@@ -226,8 +258,30 @@ function SectionRow({ title, onSeeAll }: { title: string; onSeeAll?: () => void 
 // ── Goal ────────────────────────────────────────────────────
 function GoalCard({ data }: { data: Dashboard }) {
   const { goal } = data;
-  const pct = Math.round((goal.currentAmount / goal.targetAmount) * 100);
-  const remaining = goal.targetAmount - goal.currentAmount;
+
+  // No real goal yet (placeholder has targetAmount 0) → friendly empty state
+  // instead of "NaN%" / "Faltam R$ 0,00".
+  if (goal.targetAmount <= 0) {
+    return (
+      <Card>
+        <SectionRow title="Sua meta" />
+        <View style={styles.goalEmptyBody}>
+          <View style={styles.goalEmptyIcon}>
+            <Icon name="trend" size={22} stroke={colors.green} sw={1.9} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Txt style={styles.goalTitle}>Defina sua primeira meta</Txt>
+            <Txt style={styles.goalRemaining}>
+              Crie uma reserva ou objetivo para acompanhar seu progresso aqui.
+            </Txt>
+          </View>
+        </View>
+      </Card>
+    );
+  }
+
+  const pct = Math.max(0, Math.min(100, Math.round((goal.currentAmount / goal.targetAmount) * 100)));
+  const remaining = Math.max(0, goal.targetAmount - goal.currentAmount);
   return (
     <Card>
       <SectionRow title="Sua meta" />
@@ -260,6 +314,18 @@ function RecentCard({
   onSeeAll: () => void;
 }) {
   const items = recent.slice(0, 4);
+  if (items.length === 0) {
+    return (
+      <Card pad={0}>
+        <View style={styles.recentHeader}>
+          <SectionRow title="Atividade recente" />
+        </View>
+        <Txt style={[styles.cardEmpty, { paddingHorizontal: 20, paddingBottom: 18 }]}>
+          Nenhuma transação ainda. Toque no + para registrar a primeira.
+        </Txt>
+      </Card>
+    );
+  }
   return (
     <Card pad={0}>
       <View style={styles.recentHeader}>
@@ -339,7 +405,9 @@ const styles = StyleSheet.create({
   balanceCents: { fontSize: 23, fontWeight: '700', color: colors.ink },
   balanceDelta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8 },
   deltaStrong: { color: colors.greenInk, fontWeight: '700', fontSize: 13.5 },
+  deltaNeg: { color: colors.orange },
   deltaMuted: { color: colors.ink2, fontWeight: '500', fontSize: 13.5 },
+  deltaMutedOnly: { color: colors.ink2, fontWeight: '500', fontSize: 13, marginTop: 8 },
   statsRow: { flexDirection: 'row', paddingVertical: 14, paddingHorizontal: 4 },
   stat: { flex: 1, paddingVertical: 4, paddingHorizontal: 11 },
   statDivider: { borderLeftWidth: 1, borderLeftColor: colors.line },
@@ -384,8 +452,20 @@ const styles = StyleSheet.create({
   categoryValue: { fontSize: 11, color: colors.ink2, fontWeight: '600' },
   categoryPct: { fontSize: 11, fontWeight: '800', width: 24, textAlign: 'right' },
 
+  // shared card empty state
+  cardEmpty: { fontSize: 13.5, color: colors.muted, marginTop: 14, lineHeight: 19 },
+
   // goal
   goalBody: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
+  goalEmptyBody: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 14 },
+  goalEmptyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: colors.greenWash2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   goalTitle: { fontSize: 15.5, fontWeight: '800', color: colors.ink, letterSpacing: -0.2 },
   goalAmount: { fontSize: 14, marginTop: 3 },
   goalCurrent: { color: colors.greenInk, fontWeight: '800', fontSize: 14 },

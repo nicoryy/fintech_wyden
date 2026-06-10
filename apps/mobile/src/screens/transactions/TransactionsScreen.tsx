@@ -8,7 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Press, Txt } from '../../components';
 import { useCatalog } from '../../context/CatalogContext';
-import { useTransactions } from '../../services/hooks';
+import { currentMonth, useTransactions } from '../../services/hooks';
+import { monthLabelPt, shiftMonth } from '../../services/transform';
 import type { Bank, Category, Transaction, TransactionGroup } from '../../services/types';
 import { brl } from '../../utils/format';
 import { colors, radii, cardShadow, tileShadow, withAlpha } from '../../theme/tokens';
@@ -20,10 +21,21 @@ type Filter = 'todas' | 'receita' | 'despesa' | 'impulso';
 export function TransactionsScreen() {
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState<Filter>('todas');
-  const { data } = useTransactions();
+  const [month, setMonth] = useState(currentMonth());
+  const { data } = useTransactions(month);
   const { catById, bankById } = useCatalog();
 
+  const allItems = useMemo(() => (data ?? []).flatMap((g) => g.items), [data]);
+  const entradas = useMemo(
+    () => allItems.filter((t) => t.amount > 0).reduce((s, t) => s + t.amount, 0),
+    [allItems],
+  );
+  const saidas = useMemo(
+    () => allItems.filter((t) => t.amount < 0).reduce((s, t) => s - t.amount, 0),
+    [allItems],
+  );
   const groups = useMemo(() => filterGroups(data ?? [], filter), [data, filter]);
+  const isEmptyMonth = allItems.length === 0;
 
   return (
     <ScrollView
@@ -33,13 +45,15 @@ export function TransactionsScreen() {
     >
       <View style={styles.titleRow}>
         <Txt style={styles.title}>Transações</Txt>
-        <Press accessibilityLabel="Selecionar período" style={[styles.calendarBtn, tileShadow]}>
-          <Icon name="calendar" size={21} stroke={colors.ink} sw={1.8} />
-        </Press>
       </View>
 
-      <MonthNav />
-      <MiniSummary />
+      <MonthNav
+        month={month}
+        onPrev={() => setMonth((m) => shiftMonth(m, -1))}
+        onNext={() => setMonth((m) => shiftMonth(m, 1))}
+        canGoNext={month < currentMonth()}
+      />
+      <MiniSummary entradas={entradas} saidas={saidas} />
       <FilterChips value={filter} onChange={setFilter} />
 
       <View style={{ gap: 14 }}>
@@ -64,10 +78,29 @@ export function TransactionsScreen() {
           );
         })}
         {groups.length === 0 && (
-          <Txt style={styles.empty}>Nenhuma transação neste filtro.</Txt>
+          <EmptyState
+            title={isEmptyMonth ? 'Nenhuma transação neste mês' : 'Nada neste filtro'}
+            sub={
+              isEmptyMonth
+                ? 'Toque no + para registrar sua primeira movimentação.'
+                : 'Tente outro filtro para ver mais transações.'
+            }
+          />
         )}
       </View>
     </ScrollView>
+  );
+}
+
+function EmptyState({ title, sub }: { title: string; sub: string }) {
+  return (
+    <View style={styles.emptyCard}>
+      <View style={styles.emptyIcon}>
+        <Icon name="nav-swap" size={24} stroke={colors.muted} sw={1.9} />
+      </View>
+      <Txt style={styles.emptyTitle}>{title}</Txt>
+      <Txt style={styles.emptySub}>{sub}</Txt>
+    </View>
   );
 }
 
@@ -86,21 +119,37 @@ function filterGroups(groups: TransactionGroup[], filter: Filter): TransactionGr
     .filter((g) => g.items.length > 0);
 }
 
-function MonthNav() {
+function MonthNav({
+  month,
+  onPrev,
+  onNext,
+  canGoNext,
+}: {
+  month: string;
+  onPrev: () => void;
+  onNext: () => void;
+  canGoNext: boolean;
+}) {
   return (
     <View style={styles.monthNav}>
-      <Press accessibilityLabel="Mês anterior" style={[styles.monthBtn, cardShadowSmall]}>
+      <Press accessibilityLabel="Mês anterior" onPress={onPrev} style={[styles.monthBtn, cardShadowSmall]}>
         <Icon name="chevron-left" size={18} stroke={colors.ink2} sw={2.2} />
       </Press>
-      <Txt style={styles.monthLabel}>Junho 2026</Txt>
-      <Press accessibilityLabel="Próximo mês" style={[styles.monthBtn, cardShadowSmall]}>
-        <Icon name="chevron-right" size={18} stroke={colors.ink2} sw={2.2} />
+      <Txt style={styles.monthLabel}>{monthLabelPt(month)}</Txt>
+      <Press
+        accessibilityLabel="Próximo mês"
+        accessibilityState={{ disabled: !canGoNext }}
+        disabled={!canGoNext}
+        onPress={onNext}
+        style={[styles.monthBtn, cardShadowSmall, !canGoNext && styles.monthBtnDisabled]}
+      >
+        <Icon name="chevron-right" size={18} stroke={canGoNext ? colors.ink2 : colors.muted} sw={2.2} />
       </Press>
     </View>
   );
 }
 
-function MiniSummary() {
+function MiniSummary({ entradas, saidas }: { entradas: number; saidas: number }) {
   return (
     <View style={styles.summaryRow}>
       <View style={[styles.summaryCard, { backgroundColor: colors.greenWash }]}>
@@ -110,7 +159,7 @@ function MiniSummary() {
           </View>
           <Txt style={[styles.summaryKicker, { color: colors.greenInk }]}>Entradas</Txt>
         </View>
-        <Txt style={styles.summaryValue}>R$ 6.288,20</Txt>
+        <Txt style={styles.summaryValue}>{brl(entradas)}</Txt>
       </View>
       <View style={[styles.summaryCard, { backgroundColor: colors.orangeWash }]}>
         <View style={styles.summaryHeader}>
@@ -119,7 +168,7 @@ function MiniSummary() {
           </View>
           <Txt style={[styles.summaryKicker, { color: colors.orange }]}>Saídas</Txt>
         </View>
-        <Txt style={styles.summaryValue}>R$ 784,90</Txt>
+        <Txt style={styles.summaryValue}>{brl(saidas)}</Txt>
       </View>
     </View>
   );
@@ -210,11 +259,11 @@ const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.bg },
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 2 },
   title: { fontSize: 26, fontWeight: '800', letterSpacing: -0.6, color: colors.ink },
-  calendarBtn: { width: 44, height: 44, borderRadius: 14, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
 
   monthNav: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, paddingVertical: 2 },
   monthBtn: { width: 30, height: 30, borderRadius: 10, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center' },
-  monthLabel: { fontSize: 15.5, fontWeight: '800', color: colors.ink, minWidth: 110, textAlign: 'center' },
+  monthBtnDisabled: { opacity: 0.45 },
+  monthLabel: { fontSize: 15.5, fontWeight: '800', color: colors.ink, minWidth: 140, textAlign: 'center' },
 
   summaryRow: { flexDirection: 'row', gap: 12 },
   summaryCard: { flex: 1, borderRadius: 18, paddingVertical: 14, paddingHorizontal: 16 },
@@ -247,5 +296,23 @@ const styles = StyleSheet.create({
   impulseTag: { backgroundColor: colors.purpleChip, paddingVertical: 2, paddingHorizontal: 7, borderRadius: 999 },
   impulseTagText: { fontSize: 10, fontWeight: '800', color: colors.purple },
 
-  empty: { textAlign: 'center', color: colors.muted, fontSize: 14, paddingVertical: 30 },
+  emptyCard: {
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: radii.card,
+    paddingVertical: 34,
+    paddingHorizontal: 24,
+    ...cardShadow,
+  },
+  emptyIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 17,
+    backgroundColor: colors.segBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  emptyTitle: { fontSize: 15.5, fontWeight: '800', color: colors.ink },
+  emptySub: { fontSize: 13.5, color: colors.muted, marginTop: 6, textAlign: 'center', lineHeight: 19 },
 });

@@ -38,21 +38,21 @@ describe('AddTransactionScreen', () => {
     expect(getByText('Adicionar receita')).toBeTruthy();
   });
 
-  describe('numeric keypad (cents model)', () => {
-    it('accumulates digits into the displayed amount', async () => {
-      const { getByLabelText, getByText } = await renderScreen();
-      fireEvent.press(getByLabelText('5')); // cents = 5 -> 0,05
-      expect(getByText(',05')).toBeTruthy();
-      fireEvent.press(getByLabelText('0')); // cents = 50 -> 0,50
-      expect(getByText(',50')).toBeTruthy();
+  describe('amount entry (native keyboard, cents model)', () => {
+    it('interprets typed digits as cents', async () => {
+      const { getByLabelText, getByDisplayValue } = await renderScreen();
+      fireEvent.changeText(getByLabelText('Valor'), '5'); // -> 0,05
+      expect(getByDisplayValue('0,05')).toBeTruthy();
+      fireEvent.changeText(getByLabelText('Valor'), '50'); // -> 0,50
+      expect(getByDisplayValue('0,50')).toBeTruthy();
     });
 
-    it('removes the last digit with the delete key', async () => {
-      const { getByLabelText, getByText } = await renderScreen();
-      fireEvent.press(getByLabelText('5'));
-      fireEvent.press(getByLabelText('0')); // 0,50
-      fireEvent.press(getByLabelText('Apagar')); // back to 0,05
-      expect(getByText(',05')).toBeTruthy();
+    it('strips non-digits and clears back to zero when emptied', async () => {
+      const { getByLabelText, getByDisplayValue } = await renderScreen();
+      fireEvent.changeText(getByLabelText('Valor'), 'R$ 12,5'); // digits "125" -> 1,25
+      expect(getByDisplayValue('1,25')).toBeTruthy();
+      fireEvent.changeText(getByLabelText('Valor'), ''); // back to 0,00
+      expect(getByDisplayValue('0,00')).toBeTruthy();
     });
   });
 

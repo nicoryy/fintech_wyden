@@ -439,9 +439,20 @@ são um próximo passo do pipeline.
 - **Testes de integração/e2e** contra PostgreSQL real no CI.
 - **Data picker** na tela de adicionar (hoje a data é sempre "hoje").
 
+### ⚠️ Pendências de UI (a corrigir manualmente)
+- **Perfil — barras de traços comportamentais** (Consciente/Impulsivo/Planejador):
+  hoje usam um mapeamento Fase-1 do índice de impulso, **não são scores reais por
+  traço** (Fase 2). Ajuste visual/numérico será feito manualmente.
+- **TabBar — FAB "+"**: reposicionado para não ser clipado pelo host do tab
+  navigator (faixa transparente no topo + botão flutuante dentro dos limites).
+  Conferir a elevação/sombra no device e refinar manualmente se necessário.
+
 ### Itens conhecidos deixados para depois
-- Linhas de configuração no Perfil (Contas, Categorias, Notificações, Sobre) são
-  placeholders visuais.
+- Linhas de Perfil que ainda são placeholders visuais (sem ação): **Exportar
+  dados**, **Minhas metas**, **Adicionar conta** e o botão de **editar perfil**.
+  Os toggles de **Notificações**/**Alertas de impulso** são estado local apenas.
+- **Data picker** na tela de adicionar (hoje a data é sempre "hoje"; a linha tem
+  o chevron do design mas ainda não abre seletor).
 - O detalhe do insight (padrão semanal e dica) é visual até a engine da Fase 2.
 
 ---

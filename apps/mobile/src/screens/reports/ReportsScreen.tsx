@@ -9,7 +9,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Press, ProgressBar, Txt } from '../../components';
 import { useCatalog } from '../../context/CatalogContext';
-import { useReports } from '../../services/hooks';
+import { currentMonth, useReports, type ReportPeriod } from '../../services/hooks';
+import { monthNamePt } from '../../services/transform';
 import type { Bank, BankSpend, Category, MonthPoint, Reports, SpendSlice } from '../../services/types';
 import { brl } from '../../utils/format';
 import { colors, radii, cardShadow, withAlpha } from '../../theme/tokens';
@@ -19,8 +20,8 @@ const TAB_BAR_SPACE = 110;
 export function ReportsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [period, setPeriod] = useState('Mês');
-  const { data } = useReports();
+  const [period, setPeriod] = useState<ReportPeriod>('Mês');
+  const { data } = useReports(period);
   const { catById, bankById } = useCatalog();
 
   if (!data) return <View style={styles.flex} />;
@@ -33,7 +34,7 @@ export function ReportsScreen() {
     >
       <Txt style={styles.title}>Relatórios</Txt>
       <PeriodSeg value={period} onChange={setPeriod} />
-      <EconomiaHero data={data} />
+      <EconomiaHero data={data} period={period} />
       <MonthlyChart months={data.months} />
       <BehaviorCompare behavior={data.behavior} onOpen={() => router.push('/insight')} />
       <CategoryBars spend={data.spend} catById={catById} />
@@ -42,8 +43,8 @@ export function ReportsScreen() {
   );
 }
 
-function PeriodSeg({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const opts = ['Mês', 'Trimestre', 'Ano'];
+function PeriodSeg({ value, onChange }: { value: ReportPeriod; onChange: (v: ReportPeriod) => void }) {
+  const opts: ReportPeriod[] = ['Mês', 'Trimestre', 'Ano'];
   return (
     <View style={styles.seg}>
       {opts.map((o) => {
@@ -64,24 +65,34 @@ function PeriodSeg({ value, onChange }: { value: string; onChange: (v: string) =
   );
 }
 
-function EconomiaHero({ data }: { data: Reports }) {
+function EconomiaHero({ data, period }: { data: Reports; period: ReportPeriod }) {
+  const when =
+    period === 'Mês' ? `em ${monthNamePt(currentMonth())}` : period === 'Trimestre' ? 'no trimestre' : 'no ano';
+  const suffix = period === 'Mês' ? ' este mês' : period === 'Trimestre' ? ' no trimestre' : ' no ano';
+  const pct = Math.max(0, Math.min(100, data.economia.pct));
+  const hasData = data.economia.value !== 0 || data.economia.pct !== 0;
   return (
     <View style={styles.hero}>
-      <Txt style={styles.heroKicker}>Você economizou em junho</Txt>
+      <Txt style={styles.heroKicker}>Você economizou {when}</Txt>
       <Txt style={styles.heroValue}>{brl(data.economia.value)}</Txt>
       <View style={styles.heroBarRow}>
         <View style={{ flex: 1 }}>
-          <ProgressBar pct={data.economia.pct} trackColor={colors.white} />
+          <ProgressBar pct={pct} trackColor={colors.white} />
         </View>
         <Txt style={styles.heroPct}>{data.economia.pct}%</Txt>
       </View>
-      <Txt style={styles.heroSub}>da sua renda foi guardada — seu melhor mês do ano.</Txt>
+      <Txt style={styles.heroSub}>
+        {hasData
+          ? `${data.economia.pct}% da sua renda foi guardada${suffix}.`
+          : 'Registre receitas e despesas para acompanhar sua economia.'}
+      </Txt>
     </View>
   );
 }
 
 function MonthlyChart({ months }: { months: MonthPoint[] }) {
-  const max = Math.max(...months.map((m) => m.rec));
+  // Guard against an all-zero / empty series so bar heights never become NaN.
+  const max = Math.max(1, ...months.map((m) => Math.max(m.rec, m.desp)));
   return (
     <View style={styles.card}>
       <View style={styles.cardHeaderRow}>
@@ -164,7 +175,15 @@ function CategoryBars({
   spend: SpendSlice[];
   catById: (id: string) => Category;
 }) {
-  const max = Math.max(...spend.map((s) => s.pct));
+  const max = Math.max(1, ...spend.map((s) => s.pct));
+  if (spend.length === 0) {
+    return (
+      <View style={styles.card}>
+        <Txt style={styles.cardTitle}>Gastos por categoria</Txt>
+        <Txt style={styles.cardEmpty}>Nenhum gasto registrado neste mês.</Txt>
+      </View>
+    );
+  }
   return (
     <View style={styles.card}>
       <Txt style={styles.cardTitle}>Gastos por categoria</Txt>
@@ -197,7 +216,15 @@ function BankBreakdown({
   byBank: BankSpend[];
   bankById: (id: string) => Bank;
 }) {
-  const max = Math.max(...byBank.map((b) => b.value));
+  const max = Math.max(1, ...byBank.map((b) => b.value));
+  if (byBank.length === 0) {
+    return (
+      <View style={styles.card}>
+        <Txt style={styles.cardTitle}>Gastos por banco</Txt>
+        <Txt style={styles.cardEmpty}>Nenhum gasto por banco neste mês.</Txt>
+      </View>
+    );
+  }
   return (
     <View style={styles.card}>
       <Txt style={styles.cardTitle}>Gastos por banco</Txt>
@@ -243,6 +270,7 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radii.card, padding: 20, ...cardShadow },
   cardHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   cardTitle: { fontSize: 16, fontWeight: '800', color: colors.ink, letterSpacing: -0.3 },
+  cardEmpty: { fontSize: 13.5, color: colors.muted, marginTop: 14, lineHeight: 19 },
 
   legendRow: { flexDirection: 'row', gap: 12 },
   legend: { flexDirection: 'row', alignItems: 'center', gap: 5 },

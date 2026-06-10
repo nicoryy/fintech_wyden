@@ -6,8 +6,15 @@
  * The amount is modeled in integer cents (like the prototype) so the keypad is
  * trivial and rounding-safe; it is divided by 100 only for display & on save.
  */
-import React, { useState } from 'react';
-import { View, ScrollView, TextInput, StyleSheet } from 'react-native';
+import React, { useRef, useState } from 'react';
+import {
+  View,
+  ScrollView,
+  TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -32,6 +39,7 @@ export function AddTransactionScreen() {
   const [selectedBank, setSelectedBank] = useState<string | null>(null);
   const [desc, setDesc] = useState('');
   const [saved, setSaved] = useState(false);
+  const amountRef = useRef<TextInput>(null);
 
   // Effective bank: the user's pick, else the first catalog bank (no state sync).
   const bank = selectedBank ?? banks[0]?.id ?? null;
@@ -44,13 +52,12 @@ export function AddTransactionScreen() {
 
   const close = () => router.back();
 
-  const handleKey = (k: string) => {
-    setCents((prev) => {
-      if (k === 'del') return Math.floor(prev / 10);
-      if (k === ',') return prev; // decimals handled by the cents model
-      const next = prev * 10 + Number(k);
-      return next > 99999999 ? prev : next;
-    });
+  // Amount is entered with the device's native numeric keyboard. We keep the
+  // integer-cents model: strip non-digits from the input and reinterpret the
+  // whole digit string as cents, so "1250" → R$ 12,50 and backspace works.
+  const handleAmountChange = (text: string) => {
+    const digits = text.replace(/\D/g, '').slice(0, 9);
+    setCents(digits ? parseInt(digits, 10) : 0);
   };
 
   const switchType = (t: TxType) => {
@@ -72,9 +79,13 @@ export function AddTransactionScreen() {
   };
 
   const { int, dec } = brlParts(cents / 100);
+  const amountColor = cents ? accent : colors.muted;
 
   return (
-    <View style={[styles.root, { paddingTop: insets.top }]}>
+    <KeyboardAvoidingView
+      style={[styles.root, { paddingTop: insets.top }]}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       {/* header */}
       <View style={styles.header}>
         <Press accessibilityLabel="Fechar" onPress={close} style={[styles.headerBtn, tileShadow]}>
@@ -94,16 +105,24 @@ export function AddTransactionScreen() {
           <Segmented type={type} setType={switchType} />
         </View>
 
-        {/* amount */}
+        {/* amount — a real numeric input (native keyboard), shown as the value */}
         <View style={styles.amountBlock}>
           <Txt style={styles.amountLabel}>{income ? 'VALOR RECEBIDO' : 'VALOR GASTO'}</Txt>
           <View style={styles.amountRow}>
-            <Txt style={[styles.amountCurrency, { color: cents ? accent : colors.muted }]}>R$</Txt>
-            <Txt style={[styles.amountValue, { color: cents ? accent : colors.muted }]}>
-              {int}
-              <Txt style={[styles.amountCents, { color: cents ? accent : colors.muted }]}>,{dec}</Txt>
-            </Txt>
+            <Txt style={[styles.amountCurrency, { color: amountColor }]}>R$</Txt>
+            <TextInput
+              ref={amountRef}
+              value={`${int},${dec}`}
+              onChangeText={handleAmountChange}
+              keyboardType="number-pad"
+              inputMode="numeric"
+              autoFocus
+              accessibilityLabel="Valor"
+              selectionColor={accent}
+              style={[styles.amountValue, { color: amountColor }]}
+            />
           </View>
+          <Txt style={styles.amountHint}>Digite o valor — os centavos entram sozinhos</Txt>
         </View>
 
         {/* category */}
@@ -122,7 +141,7 @@ export function AddTransactionScreen() {
         <View style={styles.detailsBlock}>
           <View style={[styles.detailRow, tileShadow]}>
             <Icon name="calendar" size={20} stroke={colors.ink2} sw={1.8} />
-            <Txt style={styles.detailText}>Hoje, 8 jun 2026</Txt>
+            <Txt style={styles.detailText}>{todayLabel()}</Txt>
             <Icon name="chevron-right" size={18} stroke={colors.muted} sw={2} />
           </View>
           <View style={[styles.detailRow, tileShadow]}>
@@ -135,11 +154,6 @@ export function AddTransactionScreen() {
               style={styles.detailInput}
             />
           </View>
-        </View>
-
-        {/* keypad */}
-        <View style={styles.keypadWrap}>
-          <Keypad onKey={handleKey} />
         </View>
       </ScrollView>
 
@@ -175,8 +189,15 @@ export function AddTransactionScreen() {
           </View>
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
   );
+}
+
+const MES_ABBR = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
+/** "Hoje, 10 jun 2026" for the (currently fixed-to-today) date row. */
+function todayLabel(now: Date = new Date()): string {
+  return `Hoje, ${now.getDate()} ${MES_ABBR[now.getMonth()]} ${now.getFullYear()}`;
 }
 
 function Segmented({ type, setType }: { type: TxType; setType: (t: TxType) => void }) {
@@ -200,30 +221,6 @@ function Segmented({ type, setType }: { type: TxType; setType: (t: TxType) => vo
           </Press>
         );
       })}
-    </View>
-  );
-}
-
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', ',', '0', 'del'];
-
-function Keypad({ onKey }: { onKey: (k: string) => void }) {
-  return (
-    <View style={styles.keypad}>
-      {KEYS.map((k) => (
-        <Press
-          key={k}
-          accessibilityLabel={k === 'del' ? 'Apagar' : k}
-          onPress={() => onKey(k)}
-          activeScale={0.97}
-          style={styles.key}
-        >
-          {k === 'del' ? (
-            <Icon name="chevron-left" size={24} stroke={colors.ink} sw={2.2} />
-          ) : (
-            <Txt style={styles.keyText}>{k}</Txt>
-          )}
-        </Press>
-      ))}
     </View>
   );
 }
@@ -337,10 +334,20 @@ const styles = StyleSheet.create({
 
   amountBlock: { alignItems: 'center', paddingTop: 22, paddingBottom: 14, paddingHorizontal: 16 },
   amountLabel: { fontSize: 13, fontWeight: '700', color: colors.ink2, letterSpacing: 0.3 },
-  amountRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'center', gap: 4, marginTop: 8 },
-  amountCurrency: { fontSize: 22, fontWeight: '700', marginTop: 10 },
-  amountValue: { fontSize: 52, fontWeight: '800', letterSpacing: -1.6, lineHeight: 52 },
-  amountCents: { fontSize: 30, fontWeight: '800' },
+  amountRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 },
+  amountCurrency: { fontSize: 22, fontWeight: '700', marginTop: 6 },
+  // TextInput needs an explicit family (Txt's weight→family mapping doesn't apply
+  // to raw inputs). 48px ExtraBold matches the prototype's amount field.
+  amountValue: {
+    fontSize: 48,
+    fontWeight: '800',
+    fontFamily: 'PlusJakarta_800ExtraBold',
+    letterSpacing: -1.6,
+    padding: 0,
+    minWidth: 60,
+    textAlign: 'center',
+  },
+  amountHint: { fontSize: 12.5, fontWeight: '600', color: colors.muted, marginTop: 6 },
 
   fieldLabelWrap: { paddingHorizontal: 16 },
   fieldLabel: { fontSize: 13.5, fontWeight: '800', color: colors.ink, marginBottom: 10 },
@@ -361,11 +368,6 @@ const styles = StyleSheet.create({
   detailRow: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.card, borderRadius: 14, paddingVertical: 13, paddingHorizontal: 14 },
   detailText: { flex: 1, fontSize: 14.5, fontWeight: '600', color: colors.ink },
   detailInput: { flex: 1, fontSize: 14.5, fontWeight: '600', color: colors.ink, padding: 0, fontFamily: 'PlusJakarta_600SemiBold' },
-
-  keypadWrap: { paddingHorizontal: 28, paddingTop: 18, paddingBottom: 8, marginTop: 'auto' },
-  keypad: { flexDirection: 'row', flexWrap: 'wrap' },
-  key: { width: '33.333%', height: 54, alignItems: 'center', justifyContent: 'center', borderRadius: 16 },
-  keyText: { fontSize: 26, fontWeight: '700', color: colors.ink },
 
   saveWrap: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.bg },
   saveBtn: { height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },

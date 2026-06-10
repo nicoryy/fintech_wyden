@@ -35,10 +35,7 @@ export function InsightSheet() {
         <ScrollView showsVerticalScrollIndicator={false}>
           <Header data={data} />
 
-          <Txt style={styles.body}>
-            Identificamos <Txt style={styles.bodyStrong}>9 compras fora do seu padrão</Txt> este mês — a
-            maioria concentrada nos finais de semana, à noite.
-          </Txt>
+          <Txt style={styles.body}>{data.description}</Txt>
 
           <WeeklyPattern data={data} />
 
@@ -58,10 +55,7 @@ export function InsightSheet() {
             <Icon name="sparkle" size={20} stroke={colors.purple} />
             <View style={{ flex: 1 }}>
               <Txt style={styles.tipTitle}>{data.tip.title}</Txt>
-              <Txt style={styles.tipBody}>
-                Defina um limite de <Txt style={styles.bodyStrong}>R$ 80/dia</Txt> para sábado e domingo.
-                Você economizaria cerca de R$ 240 por mês.
-              </Txt>
+              <Txt style={styles.tipBody}>{data.tip.body}</Txt>
             </View>
           </View>
 
@@ -147,7 +141,6 @@ const styles = StyleSheet.create({
   title: { fontSize: 18, fontWeight: '800', color: colors.ink, letterSpacing: -0.3 },
 
   body: { fontSize: 15, color: colors.ink2, lineHeight: 22, marginTop: 14 },
-  bodyStrong: { color: colors.ink, fontWeight: '700' },
 
   patternCard: { backgroundColor: colors.card, borderRadius: 20, padding: 18, marginTop: 16, ...tileShadow },
   patternTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink, marginBottom: 14 },
