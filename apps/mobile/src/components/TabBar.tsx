@@ -23,7 +23,7 @@ import { Icon, type IconName } from './Icon';
 import { colors } from '../theme/tokens';
 
 const FAB_SIZE = 58;
-const FAB_POP = 24; // how far the FAB rises above the white bar's top edge
+const FAB_POP = 14; // how far the FAB rises above the white bar's top edge
 
 interface TabMeta {
   name: string;
@@ -69,9 +69,6 @@ export function TabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <View style={styles.root}>
-      {/* transparent spacer that reserves the strip the FAB pops into */}
-      <View style={styles.popSpacer} />
-
       {/* white bar background (below the transparent top strip) */}
       <View style={[styles.barBg, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <View style={styles.row}>
@@ -102,7 +99,6 @@ const styles = StyleSheet.create({
   // Transparent strip on top so the FAB can float above the white bar while
   // staying inside the (clip-safe) root bounds.
   root: {},
-  popSpacer: { height: FAB_POP },
   barBg: {
     backgroundColor: colors.card,
     borderTopWidth: 1,
@@ -152,7 +148,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.22,
         shadowRadius: 14,
       },
-      android: { elevation: 14 },
+      android: { elevation: 8 },
       default: { boxShadow: '0 10px 22px rgba(20,30,40,.22)' },
     }),
   },
