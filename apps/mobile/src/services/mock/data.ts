@@ -100,6 +100,7 @@ export const BY_BANK: BankSpend[] = [
 export const DASHBOARD: Dashboard = {
   summary: { receitas: 6250.0, despesas: 1899.8, saldo: 4350.2 },
   evolution: EVOLUTION,
+  deltaSaldo: 620.4,
   spend: SPEND,
   goal: {
     id: 'goal-1',

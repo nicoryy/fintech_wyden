@@ -14,7 +14,8 @@ import { api } from './api';
 import {
   deriveBehavior,
   deriveEvolution,
-  economiaFromSummary,
+  deriveSaldoDelta,
+  economiaForPeriod,
   groupByDay,
   placeholderGoal,
   toBankSpend,
@@ -58,7 +59,7 @@ export const queryKeys = {
 };
 
 /** Current month as 'YYYY-MM'. */
-function currentMonth(now: Date = new Date()): string {
+export function currentMonth(now: Date = new Date()): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 }
 
@@ -121,6 +122,7 @@ export function useDashboard() {
           saldo: summary.data.saldo,
         },
         evolution: deriveEvolution(monthly.data),
+        deltaSaldo: deriveSaldoDelta(monthly.data),
         spend: toSpendSlices(byCategory.data),
         goal: goals.data[0] ? toGoal(goals.data[0]) : placeholderGoal(),
         recent: toTransactions(recentRaw),
@@ -131,38 +133,59 @@ export function useDashboard() {
 
 // ── Transactions ────────────────────────────────────────────────────────────
 
-/** Transactions grouped by day (Transações screen). */
-export function useTransactions() {
+/**
+ * Transactions for a given month (default: current), grouped by day. The month
+ * is part of the query key so navigating months caches independently; the broad
+ * `['transactions']` invalidation in `useCreateTransaction` still matches them.
+ */
+export function useTransactions(month: string = currentMonth()) {
   return useQuery<TransactionGroup[]>({
-    queryKey: queryKeys.transactions,
-    queryFn: async () => groupByDay((await api.get<ApiTransaction[]>('/transactions')).data),
+    queryKey: [...queryKeys.transactions, month],
+    queryFn: async () =>
+      groupByDay(
+        (await api.get<ApiTransaction[]>('/transactions', { params: monthRange(month) })).data,
+      ),
   });
 }
 
 // ── Reports ─────────────────────────────────────────────────────────────────
 
-/** Reports payload — composed from summary / by-category / by-bank / monthly. */
-export function useReports() {
+/** Reporting period for the Relatórios filter. */
+export type ReportPeriod = 'Mês' | 'Trimestre' | 'Ano';
+
+/** How many monthly buckets each period aggregates over. */
+const PERIOD_MONTHS: Record<ReportPeriod, number> = {
+  Mês: 1,
+  Trimestre: 3,
+  Ano: 12,
+};
+
+/**
+ * Reports payload — composed from by-category / by-bank / monthly. The economia
+ * hero aggregates over the selected `period` (the backend's summary endpoint is
+ * month-only, so we derive period economia from monthly-comparison). The 12-month
+ * window also feeds the chart (sliced to the last 6) and the period rollups.
+ */
+export function useReports(period: ReportPeriod = 'Mês') {
   return useQuery<Reports>({
-    queryKey: queryKeys.reports,
+    queryKey: [...queryKeys.reports, period],
     queryFn: async () => {
       const month = currentMonth();
       const prev = previousMonth();
       const curRange = monthRange(month);
       const prevRange = monthRange(prev);
 
-      const [summary, byCategory, byBank, monthly, curTx, prevTx] = await Promise.all([
-        api.get<ApiReportSummary>('/reports/summary', { params: { month } }),
+      const [byCategory, byBank, monthly, curTx, prevTx] = await Promise.all([
         api.get<ApiReportByCategory[]>('/reports/by-category', { params: { month, type: 'expense' } }),
         api.get<ApiReportByBank[]>('/reports/by-bank', { params: { month } }),
-        api.get<ApiMonthlyComparison[]>('/reports/monthly-comparison', { params: { months: 6 } }),
+        api.get<ApiMonthlyComparison[]>('/reports/monthly-comparison', { params: { months: 12 } }),
         api.get<ApiTransaction[]>('/transactions', { params: curRange }),
         api.get<ApiTransaction[]>('/transactions', { params: prevRange }),
       ]);
 
       return {
-        economia: economiaFromSummary(summary.data),
-        months: toMonthPoints(monthly.data),
+        economia: economiaForPeriod(monthly.data, PERIOD_MONTHS[period]),
+        months: toMonthPoints(monthly.data.slice(-6)),
         spend: toSpendSlices(byCategory.data),
         byBank: toBankSpend(byBank.data),
         behavior: deriveBehavior(curTx.data, prevTx.data),

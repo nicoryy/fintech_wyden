@@ -18,7 +18,12 @@ import {
   toBankSpend,
   toMonthPoints,
   deriveEvolution,
+  deriveSaldoDelta,
+  monthLabelPt,
+  monthNamePt,
+  shiftMonth,
   economiaFromSummary,
+  economiaForPeriod,
   deriveBehavior,
   toInsightDetail,
 } from './transform';
@@ -189,6 +194,41 @@ describe('deriveEvolution', () => {
   });
 });
 
+describe('deriveSaldoDelta', () => {
+  it('returns null for an all-zero (new account) series', () => {
+    const list: ApiMonthlyComparison[] = [
+      { month: '2026-05', receitas: 0, despesas: 0 },
+      { month: '2026-06', receitas: 0, despesas: 0 },
+    ];
+    expect(deriveSaldoDelta(list)).toBeNull();
+  });
+  it('returns null when there is only one month', () => {
+    expect(deriveSaldoDelta([{ month: '2026-06', receitas: 100, despesas: 0 }])).toBeNull();
+  });
+  it('computes the change in monthly net vs the previous month', () => {
+    const list: ApiMonthlyComparison[] = [
+      { month: '2026-05', receitas: 1000, despesas: 400 }, // net 600
+      { month: '2026-06', receitas: 1200, despesas: 300 }, // net 900
+    ];
+    expect(deriveSaldoDelta(list)).toBeCloseTo(300);
+  });
+});
+
+describe('month helpers', () => {
+  it('monthLabelPt formats a full pt-BR month + year', () => {
+    expect(monthLabelPt('2026-06')).toBe('Junho 2026');
+    expect(monthLabelPt('2026-01')).toBe('Janeiro 2026');
+  });
+  it('monthNamePt returns the lowercase month name', () => {
+    expect(monthNamePt('2026-06')).toBe('junho');
+  });
+  it('shiftMonth moves across year boundaries', () => {
+    expect(shiftMonth('2026-01', -1)).toBe('2025-12');
+    expect(shiftMonth('2026-12', 1)).toBe('2027-01');
+    expect(shiftMonth('2026-06', -2)).toBe('2026-04');
+  });
+});
+
 describe('economiaFromSummary', () => {
   it('computes saved percentage of income', () => {
     const s: ApiReportSummary = { receitas: 6250, despesas: 1899.8, saldo: 4350.2, economia: 4350.2 };
@@ -197,6 +237,25 @@ describe('economiaFromSummary', () => {
   it('is 0% when there is no income', () => {
     const s: ApiReportSummary = { receitas: 0, despesas: 0, saldo: 0, economia: 0 };
     expect(economiaFromSummary(s).pct).toBe(0);
+  });
+});
+
+describe('economiaForPeriod', () => {
+  const list: ApiMonthlyComparison[] = [
+    { month: '2026-04', receitas: 1000, despesas: 600 },
+    { month: '2026-05', receitas: 1000, despesas: 400 },
+    { month: '2026-06', receitas: 1000, despesas: 200 }, // net 800
+  ];
+  it('aggregates only the last month (Mês)', () => {
+    expect(economiaForPeriod(list, 1)).toEqual({ value: 800, pct: 80 });
+  });
+  it('aggregates the last 3 months (Trimestre)', () => {
+    // receitas 3000, despesas 1200 → value 1800, pct 60
+    expect(economiaForPeriod(list, 3)).toEqual({ value: 1800, pct: 60 });
+  });
+  it('clamps the window to the available months and is 0% with no income', () => {
+    expect(economiaForPeriod(list, 12).value).toBe(1800);
+    expect(economiaForPeriod([{ month: '2026-06', receitas: 0, despesas: 0 }], 1)).toEqual({ value: 0, pct: 0 });
   });
 });
 
@@ -214,7 +273,7 @@ describe('deriveBehavior', () => {
     // current 50% impulse, previous 0% → +50% impulsivity
     const out = deriveBehavior([expense(true), expense(false)], [expense(false), expense(false)]);
     expect(out.impulsivity).toBe('+50%');
-    expect(out.consistency).toBe('−50%');
+    expect(out.consistency).toBe('-50%');
   });
 });
 

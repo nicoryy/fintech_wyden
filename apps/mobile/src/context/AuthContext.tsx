@@ -111,3 +111,12 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+
+/**
+ * Like `useAuth` but returns null instead of throwing when no AuthProvider is
+ * present. Lets presentational pieces (e.g. the dashboard greeting) read the
+ * user when available and degrade gracefully in isolation (tests/storybook).
+ */
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext);
+}

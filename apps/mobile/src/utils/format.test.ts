@@ -28,8 +28,10 @@ describe('brl', () => {
   });
 
   describe('with sign option', () => {
-    it('prefixes a unicode minus + space for negatives', () => {
-      expect(brl(-42.9, { sign: true })).toBe('− R$ 42,90');
+    it('prefixes an ASCII hyphen-minus + space for negatives', () => {
+      // ASCII '-' (U+002D), not the Unicode minus (U+2212) which the app font
+      // lacks; see brl() in format.ts.
+      expect(brl(-42.9, { sign: true })).toBe('- R$ 42,90');
     });
 
     it('prefixes a plus + space for positive values', () => {

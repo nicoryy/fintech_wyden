@@ -37,6 +37,8 @@ export interface Bank {
   /** ink color for short label when the tile background is light */
   ink?: string;
   cash?: boolean;
+  /** current balance in reais (from the API; absent for static mock banks) */
+  balance?: number;
 }
 
 /** Compact transaction shape used across dashboard / lists. */
@@ -100,6 +102,9 @@ export interface Goal {
 export interface Dashboard {
   summary: FinancialSummary;
   evolution: number[];
+  /** DERIVED change in monthly net vs the previous month; null when there is
+   *  not enough activity to compare (e.g. a brand-new account). */
+  deltaSaldo: number | null;
   spend: SpendSlice[];
   goal: Goal;
   recent: Transaction[];

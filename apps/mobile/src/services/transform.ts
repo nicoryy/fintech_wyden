@@ -44,7 +44,8 @@ const KNOWN_ICONS: ReadonlySet<string> = new Set<IconName>([
   'wallet', 'chevron-right', 'chevron-left', 'chevron-down', 'close', 'check',
   'calendar', 'brain', 'sparkle', 'bag', 'food', 'car', 'home', 'ticket',
   'dots', 'health', 'book', 'repeat', 'nav-home', 'nav-swap', 'nav-chart',
-  'nav-user', 'plus', 'pencil', 'trend',
+  'nav-user', 'plus', 'pencil', 'trend', 'logout', 'shield', 'target',
+  'download', 'help',
 ]);
 
 /** Coerce an API icon string to a valid IconName, defaulting to 'dots'. */
@@ -115,6 +116,7 @@ export function toBank(b: ApiBank): Bank {
     short,
     ink: inkForBackground(color),
     cash: b.name === 'Dinheiro',
+    balance: Number(b.currentBalance ?? 0),
   };
 }
 
@@ -263,10 +265,69 @@ export function deriveEvolution(list: ApiMonthlyComparison[]): number[] {
   return cumulative.map((v) => (v - min) / range);
 }
 
+/**
+ * DERIVED: change in the monthly net (receitas − despesas) of the latest month
+ * vs the one before it. Returns null when there isn't enough activity to make a
+ * meaningful comparison (fewer than two months, or both months empty) so the UI
+ * can hide the "vs. mês anterior" line for new accounts instead of showing a
+ * fabricated number.
+ */
+export function deriveSaldoDelta(list: ApiMonthlyComparison[]): number | null {
+  if (list.length < 2) return null;
+  const cur = list[list.length - 1];
+  const prev = list[list.length - 2];
+  const hasActivity = [cur, prev].some((m) => m.receitas !== 0 || m.despesas !== 0);
+  if (!hasActivity) return null;
+  return cur.receitas - cur.despesas - (prev.receitas - prev.despesas);
+}
+
+const MONTHS_FULL = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
+/** "YYYY-MM" → "Junho 2026" (full pt-BR month + year). */
+export function monthLabelPt(month: string): string {
+  const [y, m] = month.split('-').map(Number);
+  const name = MONTHS_FULL[m - 1] ?? month;
+  return `${name} ${y}`;
+}
+
+/** "YYYY-MM" → just the full month name, e.g. "junho" (lowercase). */
+export function monthNamePt(month: string): string {
+  const m = Number(month.split('-')[1]);
+  return (MONTHS_FULL[m - 1] ?? month).toLowerCase();
+}
+
+/** Shift a "YYYY-MM" month by `delta` months (can be negative). */
+export function shiftMonth(month: string, delta: number): string {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** economia value + percentage of income that was saved. */
 export function economiaFromSummary(s: ApiReportSummary): { value: number; pct: number } {
   const pct = s.receitas > 0 ? Math.round((s.saldo / s.receitas) * 100) : 0;
   return { value: s.economia, pct };
+}
+
+/**
+ * economia (saved = receitas − despesas) aggregated over the last `monthsBack`
+ * buckets of monthly-comparison, plus the % of income saved. Backs the period
+ * filter (Mês = 1, Trimestre = 3, Ano = 12) since the backend's summary endpoint
+ * is month-only.
+ */
+export function economiaForPeriod(
+  list: ApiMonthlyComparison[],
+  monthsBack: number,
+): { value: number; pct: number } {
+  const window = monthsBack >= list.length ? list : list.slice(-monthsBack);
+  const receitas = window.reduce((s, m) => s + m.receitas, 0);
+  const despesas = window.reduce((s, m) => s + m.despesas, 0);
+  const value = receitas - despesas;
+  const pct = receitas > 0 ? Math.round((value / receitas) * 100) : 0;
+  return { value, pct };
 }
 
 /** Percentage of impulse transactions in a list (0..100, integer). */
@@ -277,10 +338,10 @@ function impulsePct(list: ApiTransaction[]): number {
   return Math.round((impulse / expenses.length) * 100);
 }
 
-/** Format a signed delta as "+N%" / "−N%" / "—". */
+/** Format a signed delta as "+N%" / "-N%" / "—" (ASCII '-', see brl). */
 function deltaLabel(delta: number | null): string {
   if (delta === null) return '—';
-  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '';
+  const sign = delta > 0 ? '+' : delta < 0 ? '-' : '';
   return `${sign}${Math.abs(delta)}%`;
 }
 

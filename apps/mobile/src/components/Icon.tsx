@@ -36,7 +36,12 @@ export type IconName =
   | 'nav-user'
   | 'plus'
   | 'pencil'
-  | 'trend';
+  | 'trend'
+  | 'logout'
+  | 'shield'
+  | 'target'
+  | 'download'
+  | 'help';
 
 export interface IconProps {
   name: IconName;
@@ -279,6 +284,45 @@ export function Icon({
         <Svg {...p}>
           <Path d="M3 16l5-5 4 3 8-8" />
           <Path d="M20 6v5h-5" />
+        </Svg>
+      );
+    case 'logout':
+      return (
+        <Svg {...p}>
+          <Path d="M9 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h3" />
+          <Path d="m15 8 4 4-4 4" />
+          <Path d="M19 12H9" />
+        </Svg>
+      );
+    case 'shield':
+      return (
+        <Svg {...p}>
+          <Path d="M12 3 5 5.5v5c0 4.6 3 8.3 7 10 4-1.7 7-5.4 7-10v-5L12 3Z" />
+          <Path d="m9 11.5 2 2 4-4" />
+        </Svg>
+      );
+    case 'target':
+      return (
+        <Svg {...p}>
+          <Circle cx="12" cy="12" r="8.5" />
+          <Circle cx="12" cy="12" r="4.5" />
+          <Circle cx="12" cy="12" r="1" fill={stroke} stroke="none" />
+        </Svg>
+      );
+    case 'download':
+      return (
+        <Svg {...p}>
+          <Path d="M12 4v11" />
+          <Path d="m7 11 5 5 5-5" />
+          <Path d="M5 20h14" />
+        </Svg>
+      );
+    case 'help':
+      return (
+        <Svg {...p}>
+          <Circle cx="12" cy="12" r="9" />
+          <Path d="M9.5 9.2a2.5 2.5 0 0 1 4.9.6c0 1.7-2.4 2.2-2.4 3.7" />
+          <Circle cx="12" cy="16.8" r="0.6" fill={stroke} stroke="none" />
         </Svg>
       );
     default:
