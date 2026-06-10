@@ -29,10 +29,7 @@ export function Press({
     <Pressable
       accessibilityRole={accessibilityRole}
       disabled={disabled}
-      style={({ pressed }) => [
-        style,
-        pressed && !disabled ? { transform: [{ scale: activeScale }] } : null,
-      ]}
+      style={[style]}
       {...rest}
     >
       {children}
