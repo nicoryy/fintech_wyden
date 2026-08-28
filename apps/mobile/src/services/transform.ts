@@ -425,11 +425,14 @@ function scoreBand(score: number): string {
 }
 
 /**
- * DERIVED: the backend `GET /insights` returns flat insight records (no weekly
- * pattern / tips in Phase 1). When one exists we map it onto the rich
- * `InsightDetail` UI shape, filling the visual-only fields (weeklyPattern, tip)
- * with neutral placeholders. When there are none we return a friendly empty
- * state. Phase 2's engine will populate these for real.
+ * The backend `GET /insights` returns flat records — `type`, `title`,
+ * `description`, `score`, nothing per-weekday or per-hour. This used to fill
+ * `weeklyPattern` and a "Horário de pico" metric with hardcoded numbers
+ * regardless of what (if anything) the API returned, presenting invented
+ * data as if it were measured. Now `weeklyPattern` and the peak-hour metric
+ * are only ever emitted once the engine actually produces them (Phase 2) —
+ * `scoreBand` is the one metric genuinely derived from the record's own
+ * `score`, so it's the only one kept today.
  */
 export function toInsightDetail(list: ApiInsight[]): InsightDetail {
   const first = list[0];
@@ -439,41 +442,14 @@ export function toInsightDetail(list: ApiInsight[]): InsightDetail {
       title: 'Sem insights ainda',
       description:
         'Continue registrando suas transações. Em breve traremos uma leitura do seu comportamento financeiro.',
-      weeklyPattern: [
-        { day: 'Seg', value: 0.2 },
-        { day: 'Ter', value: 0.2 },
-        { day: 'Qua', value: 0.2 },
-        { day: 'Qui', value: 0.2 },
-        { day: 'Sex', value: 0.2 },
-        { day: 'Sáb', value: 0.2 },
-        { day: 'Dom', value: 0.2 },
-      ],
-      metrics: [
-        { label: 'Índice de impulso', value: '—', tone: 'orange', sub: 'sem dados' },
-        { label: 'Horário de pico', value: '—', tone: 'purple', sub: 'sem dados' },
-      ],
-      tip: {
-        title: 'Dica',
-        body: 'Registre ao menos uma semana de gastos para liberar seus primeiros insights.',
-      },
     };
   }
   return {
     type: first.type,
     title: first.title,
     description: first.description,
-    weeklyPattern: [
-      { day: 'Seg', value: 0.3 },
-      { day: 'Ter', value: 0.26 },
-      { day: 'Qua', value: 0.34 },
-      { day: 'Qui', value: 0.4 },
-      { day: 'Sex', value: 0.62 },
-      { day: 'Sáb', value: 0.95, hot: true },
-      { day: 'Dom', value: 0.8, hot: true },
-    ],
     metrics: [
       { label: 'Índice de impulso', value: scoreBand(first.score), tone: 'orange', sub: `score ${first.score}` },
-      { label: 'Horário de pico', value: '21h–23h', tone: 'purple', sub: 'Sáb e Dom' },
     ],
     tip: {
       title: 'Dica para esta semana',

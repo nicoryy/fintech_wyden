@@ -9,7 +9,7 @@ import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Icon, Press, Txt } from '../../components';
+import { ErrorState, Icon, Press, Txt } from '../../components';
 import { useInsight } from '../../services/hooks';
 import type { InsightDetail } from '../../services/types';
 import { colors, tileShadow } from '../../theme/tokens';
@@ -17,8 +17,30 @@ import { colors, tileShadow } from '../../theme/tokens';
 export function InsightSheet() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { data } = useInsight();
+  const { data, isError, refetch } = useInsight();
   const close = () => router.back();
+
+  if (isError) {
+    return (
+      <View style={styles.root}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Fechar"
+          style={styles.scrim}
+          onPress={close}
+        />
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) + 14 }]}>
+          <View style={styles.grabber} />
+          <View style={{ paddingHorizontal: 4, paddingTop: 6 }}>
+            <ErrorState
+              title="Não foi possível carregar seu insight"
+              onRetry={() => void refetch()}
+            />
+          </View>
+        </View>
+      </View>
+    );
+  }
 
   if (!data) return <Pressable style={styles.scrim} onPress={close} />;
 
@@ -37,27 +59,40 @@ export function InsightSheet() {
 
           <Txt style={styles.body}>{data.description}</Txt>
 
-          <WeeklyPattern data={data} />
-
-          <View style={styles.metricsRow}>
-            {data.metrics.map((m) => (
-              <Metric
-                key={m.label}
-                label={m.label}
-                value={m.value}
-                tone={m.tone === 'orange' ? colors.orange : colors.purple}
-                sub={m.sub}
-              />
-            ))}
-          </View>
-
-          <View style={styles.tip}>
-            <Icon name="sparkle" size={20} stroke={colors.purple} />
-            <View style={{ flex: 1 }}>
-              <Txt style={styles.tipTitle}>{data.tip.title}</Txt>
-              <Txt style={styles.tipBody}>{data.tip.body}</Txt>
+          {data.weeklyPattern ? (
+            <WeeklyPattern pattern={data.weeklyPattern} />
+          ) : (
+            <View style={styles.patternCard}>
+              <Txt style={styles.patternTitle}>Impulso por dia da semana</Txt>
+              <Txt style={styles.patternEmpty}>
+                Essa leitura libera quando houver histórico suficiente de transações.
+              </Txt>
             </View>
-          </View>
+          )}
+
+          {data.metrics && (
+            <View style={styles.metricsRow}>
+              {data.metrics.map((m) => (
+                <Metric
+                  key={m.label}
+                  label={m.label}
+                  value={m.value}
+                  tone={m.tone === 'orange' ? colors.orange : colors.purple}
+                  sub={m.sub}
+                />
+              ))}
+            </View>
+          )}
+
+          {data.tip && (
+            <View style={styles.tip}>
+              <Icon name="sparkle" size={20} stroke={colors.purple} />
+              <View style={{ flex: 1 }}>
+                <Txt style={styles.tipTitle}>{data.tip.title}</Txt>
+                <Txt style={styles.tipBody}>{data.tip.body}</Txt>
+              </View>
+            </View>
+          )}
 
           <Press accessibilityLabel="Definir limite diário" onPress={close} style={styles.cta}>
             <Txt style={styles.ctaText}>Definir limite diário</Txt>
@@ -82,12 +117,12 @@ function Header({ data }: { data: InsightDetail }) {
   );
 }
 
-function WeeklyPattern({ data }: { data: InsightDetail }) {
+function WeeklyPattern({ pattern }: { pattern: NonNullable<InsightDetail['weeklyPattern']> }) {
   return (
     <View style={styles.patternCard}>
       <Txt style={styles.patternTitle}>Impulso por dia da semana</Txt>
       <View style={styles.barsRow}>
-        {data.weeklyPattern.map((b) => (
+        {pattern.map((b) => (
           <View key={b.day} style={styles.barCol}>
             <View style={styles.barTrack}>
               <View
@@ -144,6 +179,7 @@ const styles = StyleSheet.create({
 
   patternCard: { backgroundColor: colors.card, borderRadius: 20, padding: 18, marginTop: 16, ...tileShadow },
   patternTitle: { fontSize: 13.5, fontWeight: '800', color: colors.ink, marginBottom: 14 },
+  patternEmpty: { fontSize: 13, color: colors.muted, lineHeight: 18 },
   barsRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, height: 110 },
   barCol: { flex: 1, alignItems: 'center', gap: 7 },
   barTrack: { width: '100%', height: 86, justifyContent: 'flex-end' },

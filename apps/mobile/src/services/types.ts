@@ -124,7 +124,13 @@ export interface InsightDetail {
   type: InsightTypeEnum;
   title: string;
   description: string;
-  weeklyPattern: { day: string; value: number; hot?: boolean }[];
-  metrics: { label: string; value: string; tone: 'orange' | 'purple'; sub: string }[];
-  tip: { title: string; body: string };
+  /**
+   * Absent until the behavioral engine (Phase 2) can produce a real
+   * per-weekday breakdown — the backend record has no such data today, so
+   * there is nothing genuine to chart yet. The UI should say that instead
+   * of rendering invented numbers as if they were measurements.
+   */
+  weeklyPattern?: { day: string; value: number; hot?: boolean }[];
+  metrics?: { label: string; value: string; tone: 'orange' | 'purple'; sub: string }[];
+  tip?: { title: string; body: string };
 }

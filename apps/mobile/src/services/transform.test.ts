@@ -342,15 +342,24 @@ describe('deriveBehavior', () => {
 });
 
 describe('toInsightDetail', () => {
-  it('returns an empty state when there are no insights', () => {
+  it('returns an honest empty state when there are no insights — no fabricated weeklyPattern/metrics/tip', () => {
     const out = toInsightDetail([]);
     expect(out.title).toBe('Sem insights ainda');
-    expect(out.weeklyPattern.length).toBe(7);
+    expect(out.weeklyPattern).toBeUndefined();
+    expect(out.metrics).toBeUndefined();
+    expect(out.tip).toBeUndefined();
   });
-  it('maps the first insight onto the detail shape', () => {
+
+  it('maps the first insight onto the detail shape, without a fabricated weeklyPattern or peak-hour metric', () => {
     const list: ApiInsight[] = [{ id: 'i', type: InsightTypeEnum.IMPULSIVITY, score: 72, title: 'Gasto por impulso', description: 'desc' }];
     const out = toInsightDetail(list);
     expect(out.title).toBe('Gasto por impulso');
-    expect(out.metrics[0].value).toBe('Alto'); // score 72 → Alto
+    // Only the score-derived metric — the invented "Horário de pico: 21h–23h"
+    // is gone, and so is the invented weeklyPattern (regression coverage).
+    expect(out.metrics).toEqual([
+      { label: 'Índice de impulso', value: 'Alto', tone: 'orange', sub: 'score 72' },
+    ]);
+    expect(out.weeklyPattern).toBeUndefined();
+    expect(out.tip).toEqual({ title: 'Dica para esta semana', body: 'desc' });
   });
 });

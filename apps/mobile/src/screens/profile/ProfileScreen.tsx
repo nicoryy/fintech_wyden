@@ -132,12 +132,11 @@ export function ProfileScreen() {
 }
 
 // ── Behavioral profile (purple — differentiator) ────────────────────────────
-const BANDS: Record<string, { Consciente: number; Impulsivo: number; Planejador: number }> = {
-  Alto: { Consciente: 34, Impulsivo: 72, Planejador: 40 },
-  Médio: { Consciente: 56, Impulsivo: 48, Planejador: 58 },
-  Baixo: { Consciente: 74, Impulsivo: 28, Planejador: 66 },
-};
-
+// Used to also render three "Consciente/Impulsivo/Planejador" trait bars from
+// a hardcoded BANDS lookup table with no backend data behind it whatsoever —
+// removed rather than replaced, since there is no per-trait score to show
+// honestly yet (only the single overall índice de impulso in insight.metrics,
+// already shown in InsightSheet).
 function BehaviorProfile({
   insight,
   onOpen,
@@ -145,9 +144,7 @@ function BehaviorProfile({
   insight: ReturnType<typeof useInsight>['data'];
   onOpen: () => void;
 }) {
-  const hasInsight = !!insight && insight.title !== 'Sem insights ainda';
-  const band = insight?.metrics?.[0]?.value ?? 'Baixo';
-  const traits = hasInsight ? BANDS[band] ?? BANDS.Baixo : null;
+  const hasInsight = !!insight?.metrics?.length;
 
   return (
     <Press accessibilityLabel="Abrir perfil comportamental" onPress={onOpen} style={styles.behavior}>
@@ -163,19 +160,6 @@ function BehaviorProfile({
           ? insight!.description
           : 'Continue registrando suas transações para revelar seu perfil comportamental.'}
       </Txt>
-      {traits && (
-        <View style={{ gap: 9, marginTop: 13 }}>
-          {(Object.keys(traits) as (keyof typeof traits)[]).map((label) => (
-            <View key={label} style={styles.traitRow}>
-              <Txt style={styles.traitLabel}>{label}</Txt>
-              <View style={styles.traitTrack}>
-                <View style={[styles.traitFill, { width: `${traits[label]}%` }]} />
-              </View>
-              <Txt style={styles.traitPct}>{traits[label]}%</Txt>
-            </View>
-          ))}
-        </View>
-      )}
     </Press>
   );
 }
@@ -302,11 +286,6 @@ const styles = StyleSheet.create({
   behaviorChip: { width: 32, height: 32, borderRadius: 10, backgroundColor: colors.purpleChip, alignItems: 'center', justifyContent: 'center' },
   behaviorTitle: { flex: 1, fontSize: 14.5, fontWeight: '800', color: colors.purpleInk },
   behaviorDesc: { fontSize: 13.5, color: colors.ink2, marginTop: 10, lineHeight: 19 },
-  traitRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  traitLabel: { width: 82, fontSize: 12, fontWeight: '700', color: colors.ink2 },
-  traitTrack: { flex: 1, height: 7, borderRadius: 7, backgroundColor: colors.white, overflow: 'hidden' },
-  traitFill: { height: '100%', borderRadius: 7, backgroundColor: colors.purple },
-  traitPct: { width: 32, textAlign: 'right', fontSize: 12, fontWeight: '800', color: colors.purpleInk },
 
   // generic card
   card: { backgroundColor: colors.card, borderRadius: radii.card, overflow: 'hidden', ...cardShadow },
