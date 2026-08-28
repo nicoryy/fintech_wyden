@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Between, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
+import { Between, DataSource, LessThanOrEqual, MoreThanOrEqual } from 'typeorm';
 import { NotFoundException } from '@nestjs/common';
 import { TransactionsService } from './transactions.service';
 import { Transaction, TransactionType } from './entities/transaction.entity';
@@ -13,25 +13,53 @@ import {
   MockRepo,
 } from '../../test-utils/mock-repo';
 
-// Local-time ISO strings (no trailing Z) so getHours()/getDay() are
-// deterministic regardless of the machine timezone.
-const SATURDAY_NIGHT = '2026-01-17T22:00:00'; // Sat, 22h -> night & weekend
-const WEDNESDAY_DAY = '2026-01-14T10:00:00'; // Wed, 10h -> not night, not weekend
+// Real UTC instants (as the mobile app actually sends — `new Date().toISOString()`),
+// expressed here as their Brazil-local (UTC-3, no DST since 2019) equivalent
+// so the intent stays readable. detectImpulse() reads these back through a
+// fixed -3h shift (see transactions.service.ts), which makes the result
+// deterministic regardless of the machine/container's own timezone — using
+// local-time-ambiguous strings (no trailing Z) here would silently reintroduce
+// that same flakiness at the string-parsing step.
+const SATURDAY_NIGHT = '2026-01-18T01:00:00.000Z'; // Sat 17th, 22h BRT -> night & weekend
+const WEDNESDAY_DAY = '2026-01-14T13:00:00.000Z'; // Wed 14th, 10h BRT -> not night, not weekend
 
 describe('TransactionsService', () => {
   let service: TransactionsService;
   let txRepo: MockRepo<Transaction>;
   let banksRepo: MockRepo<Bank>;
+  let dataSource: { transaction: jest.Mock };
 
   beforeEach(async () => {
     txRepo = createMockRepo<Transaction>();
     banksRepo = createMockRepo<Bank>();
+    // Safe default: update() now re-runs detectImpulse whenever amount/type/
+    // transactionDate change (see the isImpulse-recompute tests below), which
+    // can call txRepo.find() for the 7-day history lookup. Defaulting it to
+    // "no history" here keeps tests that don't care about isImpulse from
+    // depending on whether the machine's timezone happens to land their
+    // fixture date on a night/weekend bucket. Tests that DO care override
+    // this per-case as usual.
+    txRepo.find!.mockResolvedValue([]);
+    // create/update/remove now wrap their writes in dataSource.transaction()
+    // (see the comment on TransactionsService.create). The fake just hands
+    // the callback a manager whose getRepository() resolves to the SAME
+    // txRepo/banksRepo mocks used everywhere else in this file, so every
+    // existing assertion on those mocks keeps working unchanged.
+    dataSource = {
+      transaction: jest.fn((cb: (manager: unknown) => unknown) =>
+        cb({
+          getRepository: (entity: unknown) =>
+            entity === Transaction ? txRepo : banksRepo,
+        }),
+      ),
+    };
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TransactionsService,
         { provide: getRepositoryToken(Transaction), useValue: txRepo },
         { provide: getRepositoryToken(Bank), useValue: banksRepo },
+        { provide: DataSource, useValue: dataSource },
       ],
     }).compile();
 
@@ -241,6 +269,22 @@ describe('TransactionsService', () => {
       // transactionDate filter is a Between(...) range.
       expect(arg.where.transactionDate).toBeDefined();
     });
+
+    it('does not misread a Brazil-daytime purchase as "night" from a UTC-timezone process (regression: reading raw UTC hours instead of shifting to Brazil-local time used to flag 18h BRT / 21h UTC as night)', async () => {
+      setupBank();
+      // Wed 14th, 18h BRT == 21h UTC. Naively reading getHours() in a
+      // UTC-running process would see 21 (>= IMPULSE_NIGHT_HOUR) and wrongly
+      // call this "night"; it is only 18h for the user in Brazil.
+      const eighteenBrtOnAWeekday = '2026-01-14T21:00:00.000Z';
+      const saved = await service.create(
+        'user-1',
+        baseDto({ amount: 9999, transactionDate: eighteenBrtOnAWeekday }),
+      );
+      expect(saved.isImpulse).toBe(false);
+      // Confirms the night/weekend precheck short-circuited before even
+      // looking at amount/history.
+      expect(txRepo.find).not.toHaveBeenCalled();
+    });
   });
 
   describe('findAll', () => {
@@ -443,6 +487,135 @@ describe('TransactionsService', () => {
 
       expect(banksRepo.save).not.toHaveBeenCalled();
       expect(txRepo.remove).toHaveBeenCalledWith(existing);
+    });
+  });
+
+  // Regression coverage for the balance-desync bug: the ledger write and the
+  // bank-balance write used to be two independent save() round-trips, so a
+  // failure between them could leave Bank.currentBalance permanently wrong.
+  describe('atomicity (dataSource.transaction)', () => {
+    it('wraps create in a single dataSource.transaction', async () => {
+      const bank = makeBank({ id: 'bank-1', currentBalance: 1000 });
+      banksRepo.findOne!.mockResolvedValue(bank);
+      txRepo.create!.mockImplementation((v: Partial<Transaction>) => v);
+      txRepo.save!.mockImplementation((v: Transaction) => Promise.resolve(v));
+
+      await service.create('user-1', baseDto());
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('wraps update in a single dataSource.transaction', async () => {
+      const existing = makeTransaction({
+        id: 'tx-1',
+        bankId: 'bank-1',
+        amount: 100,
+        type: TransactionType.EXPENSE,
+      });
+      const bank = makeBank({ id: 'bank-1', currentBalance: 900 });
+      txRepo.findOne!.mockResolvedValue(existing);
+      banksRepo.findOne!.mockResolvedValue(bank);
+      txRepo.save!.mockImplementation((v: Transaction) => Promise.resolve(v));
+      banksRepo.save!.mockImplementation((v: Bank) => Promise.resolve(v));
+
+      await service.update('tx-1', 'user-1', { amount: 150 });
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('wraps remove in a single dataSource.transaction', async () => {
+      const existing = makeTransaction({ id: 'tx-1', bankId: 'bank-1' });
+      const bank = makeBank({ id: 'bank-1', currentBalance: 900 });
+      txRepo.findOne!.mockResolvedValue(existing);
+      banksRepo.findOne!.mockResolvedValue(bank);
+      banksRepo.save!.mockImplementation((v: Bank) => Promise.resolve(v));
+      txRepo.remove!.mockResolvedValue(existing);
+
+      await service.remove('tx-1', 'user-1');
+
+      expect(dataSource.transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not open a transaction at all when create is rejected up front (bank not owned)', async () => {
+      banksRepo.findOne!.mockResolvedValue(null);
+
+      await expect(service.create('user-1', baseDto())).rejects.toThrow(
+        NotFoundException,
+      );
+
+      expect(dataSource.transaction).not.toHaveBeenCalled();
+    });
+  });
+
+  // Regression coverage for "isImpulse is never reavaliado on update": amount,
+  // type or transactionDate changing should re-run detectImpulse unless the
+  // client sends an explicit isImpulse override.
+  describe('isImpulse recompute on update', () => {
+    const setup = (existingOverrides: Partial<Transaction> = {}) => {
+      const existing = makeTransaction({
+        id: 'tx-1',
+        bankId: 'bank-1',
+        type: TransactionType.EXPENSE,
+        amount: 10,
+        transactionDate: WEDNESDAY_DAY as unknown as Date,
+        isImpulse: false,
+        ...existingOverrides,
+      });
+      const bank = makeBank({ id: 'bank-1', currentBalance: 900 });
+      txRepo.findOne!.mockResolvedValue(existing);
+      banksRepo.findOne!.mockResolvedValue(bank);
+      txRepo.save!.mockImplementation((v: Transaction) => Promise.resolve(v));
+      banksRepo.save!.mockImplementation((v: Bank) => Promise.resolve(v));
+      return existing;
+    };
+
+    it('recomputes when the amount changes and crosses into impulse territory', async () => {
+      setup();
+      // Move the resent date into night+weekend territory so the amount
+      // alone decides the outcome, mirroring the fallback threshold (>100).
+      const saved = await service.update('tx-1', 'user-1', {
+        amount: 150,
+        transactionDate: SATURDAY_NIGHT,
+      });
+
+      expect(saved.isImpulse).toBe(true);
+    });
+
+    it('recomputes when only the type changes (expense -> income is never impulse)', async () => {
+      setup({
+        amount: 9999,
+        transactionDate: SATURDAY_NIGHT as unknown as Date,
+        isImpulse: true,
+      });
+
+      const saved = await service.update('tx-1', 'user-1', {
+        type: TransactionType.INCOME,
+      });
+
+      expect(saved.isImpulse).toBe(false);
+    });
+
+    it('does not recompute when the update has nothing to do with impulse inputs (e.g. only description)', async () => {
+      setup({ isImpulse: true });
+
+      const saved = await service.update('tx-1', 'user-1', {
+        description: 'Updated note',
+      });
+
+      // Untouched — recompute never ran.
+      expect(saved.isImpulse).toBe(true);
+    });
+
+    it('respects an explicit isImpulse override instead of recomputing', async () => {
+      setup();
+
+      const saved = await service.update('tx-1', 'user-1', {
+        amount: 150,
+        transactionDate: SATURDAY_NIGHT,
+        isImpulse: false,
+      });
+
+      expect(saved.isImpulse).toBe(false);
     });
   });
 });

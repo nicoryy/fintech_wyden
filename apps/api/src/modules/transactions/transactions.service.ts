@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   Between,
+  DataSource,
   FindOptionsWhere,
   LessThanOrEqual,
   MoreThanOrEqual,
@@ -16,6 +17,17 @@ import { QueryTransactionDto } from './dto/query-transaction.dto';
 const IMPULSE_NIGHT_HOUR = 20; // 20h onwards is considered "late night"
 const IMPULSE_FALLBACK_AMOUNT = 100; // used when there is no 7-day history
 const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+// The heuristic below cares about the user's LOCAL wall-clock hour/weekday,
+// but the mobile app always sends `transactionDate` as a UTC instant
+// (`new Date().toISOString()`). Reading that instant with
+// Date.prototype.getHours()/getDay() answers "what hour/weekday is it in the
+// API PROCESS's timezone", not the user's — so the exact same purchase could
+// be flagged differently depending only on whether the API happens to run in
+// a UTC container (Docker's default) or on a Brazil-timezone dev machine.
+// Shifting by a fixed offset and reading the UTC components back gives a
+// deterministic Brazil-local hour/weekday no matter where the process runs.
+// Brazil has had no DST since 2019, so a fixed offset is accurate.
+const BRAZIL_UTC_OFFSET_HOURS = -3;
 
 @Injectable()
 export class TransactionsService {
@@ -24,6 +36,7 @@ export class TransactionsService {
     private readonly txRepo: Repository<Transaction>,
     @InjectRepository(Bank)
     private readonly banksRepo: Repository<Bank>,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(
@@ -41,18 +54,26 @@ export class TransactionsService {
         ? dto.isImpulse
         : await this.detectImpulse(userId, dto);
 
-    const tx = this.txRepo.create({
-      ...dto,
-      userId,
-      isImpulse,
-      transactionDate: new Date(dto.transactionDate),
+    // The transaction insert and the balance update must land together —
+    // a failure between two separate save() round-trips used to leave
+    // Bank.currentBalance permanently out of sync with the ledger.
+    return this.dataSource.transaction(async (manager) => {
+      const txRepo = manager.getRepository(Transaction);
+      const banksRepo = manager.getRepository(Bank);
+
+      const tx = txRepo.create({
+        ...dto,
+        userId,
+        isImpulse,
+        transactionDate: new Date(dto.transactionDate),
+      });
+      const saved = await txRepo.save(tx);
+
+      this.applyToBalance(bank, dto.type, Number(dto.amount));
+      await banksRepo.save(bank);
+
+      return saved;
     });
-    const saved = await this.txRepo.save(tx);
-
-    this.applyToBalance(bank, dto.type, Number(dto.amount));
-    await this.banksRepo.save(bank);
-
-    return saved;
   }
 
   /**
@@ -68,13 +89,16 @@ export class TransactionsService {
    */
   private async detectImpulse(
     userId: string,
-    dto: CreateTransactionDto,
+    dto: Pick<CreateTransactionDto, 'type' | 'amount' | 'transactionDate'>,
   ): Promise<boolean> {
     if (dto.type !== TransactionType.EXPENSE) return false;
 
     const date = new Date(dto.transactionDate);
-    const hour = date.getHours();
-    const weekday = date.getDay(); // 0 = Sunday, 6 = Saturday
+    const brazilLocal = new Date(
+      date.getTime() + BRAZIL_UTC_OFFSET_HOURS * 60 * 60 * 1000,
+    );
+    const hour = brazilLocal.getUTCHours();
+    const weekday = brazilLocal.getUTCDay(); // 0 = Sunday, 6 = Saturday
     const isNight = hour >= IMPULSE_NIGHT_HOUR;
     const isWeekend = weekday === 0 || weekday === 6;
     if (!isNight && !isWeekend) return false;
@@ -148,6 +172,13 @@ export class TransactionsService {
     const oldType = tx.type;
     const oldAmount = Number(tx.amount);
     const oldBankId = tx.bankId;
+    // transactionDate/amount/type all feed detectImpulse — if any of them is
+    // part of this update, the previously-stored isImpulse flag may now be
+    // stale and needs recomputing (unless the client overrides it directly).
+    const impulseInputsChanged =
+      dto.type !== undefined ||
+      dto.amount !== undefined ||
+      dto.transactionDate !== undefined;
 
     Object.assign(tx, dto);
     if (dto.transactionDate) {
@@ -158,6 +189,19 @@ export class TransactionsService {
     const newAmount = Number(tx.amount);
     const newBankId = tx.bankId;
 
+    if (dto.isImpulse === undefined && impulseInputsChanged) {
+      // `transaction_date` is a date-only column, so once a transaction is
+      // persisted its original time-of-day is gone — reusing the stored
+      // value here means the "night" signal can only ever be known from a
+      // transactionDate resent on THIS update; the "weekend" signal still
+      // works either way since it only needs the calendar date.
+      tx.isImpulse = await this.detectImpulse(userId, {
+        type: newType,
+        amount: newAmount,
+        transactionDate: dto.transactionDate ?? String(tx.transactionDate),
+      });
+    }
+
     // Validate (and load) the new bank up-front so we never persist the
     // transaction if it points at a bank the user does not own.
     const newBank = await this.banksRepo.findOne({
@@ -165,39 +209,52 @@ export class TransactionsService {
     });
     if (!newBank) throw new NotFoundException(`Bank ${newBankId} not found`);
 
-    const saved = await this.txRepo.save(tx);
+    // The transaction update and the balance rebalance must land together —
+    // see the comment in create() for why this can no longer be two
+    // separate save() round-trips.
+    return this.dataSource.transaction(async (manager) => {
+      const txRepo = manager.getRepository(Transaction);
+      const banksRepo = manager.getRepository(Bank);
 
-    // Rebalance: revert the old transaction's effect, then apply the new one.
-    if (oldBankId === newBankId) {
-      // Same bank — adjust in a single load/save to avoid double persistence.
-      this.revertFromBalance(newBank, oldType, oldAmount);
-      this.applyToBalance(newBank, newType, newAmount);
-      await this.banksRepo.save(newBank);
-    } else {
-      const oldBank = await this.banksRepo.findOne({
-        where: { id: oldBankId, userId },
-      });
-      if (oldBank) {
-        this.revertFromBalance(oldBank, oldType, oldAmount);
-        await this.banksRepo.save(oldBank);
+      const saved = await txRepo.save(tx);
+
+      // Rebalance: revert the old transaction's effect, then apply the new one.
+      if (oldBankId === newBankId) {
+        // Same bank — adjust in a single load/save to avoid double persistence.
+        this.revertFromBalance(newBank, oldType, oldAmount);
+        this.applyToBalance(newBank, newType, newAmount);
+        await banksRepo.save(newBank);
+      } else {
+        const oldBank = await banksRepo.findOne({
+          where: { id: oldBankId, userId },
+        });
+        if (oldBank) {
+          this.revertFromBalance(oldBank, oldType, oldAmount);
+          await banksRepo.save(oldBank);
+        }
+        this.applyToBalance(newBank, newType, newAmount);
+        await banksRepo.save(newBank);
       }
-      this.applyToBalance(newBank, newType, newAmount);
-      await this.banksRepo.save(newBank);
-    }
 
-    return saved;
+      return saved;
+    });
   }
 
   async remove(id: string, userId: string): Promise<void> {
     const tx = await this.findOne(id, userId);
     const bank = await this.banksRepo.findOne({ where: { id: tx.bankId } });
 
-    if (bank) {
-      this.revertFromBalance(bank, tx.type, Number(tx.amount));
-      await this.banksRepo.save(bank);
-    }
+    await this.dataSource.transaction(async (manager) => {
+      const txRepo = manager.getRepository(Transaction);
+      const banksRepo = manager.getRepository(Bank);
 
-    await this.txRepo.remove(tx);
+      if (bank) {
+        this.revertFromBalance(bank, tx.type, Number(tx.amount));
+        await banksRepo.save(bank);
+      }
+
+      await txRepo.remove(tx);
+    });
   }
 
   /** Applies a transaction's effect to a bank balance (income +, expense -). */

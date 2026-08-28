@@ -236,6 +236,51 @@ export function toBankSpend(list: ApiReportByBank[]): BankSpend[] {
   return list.map((x) => ({ bankId: x.bankId, value: x.total }));
 }
 
+/**
+ * Merges by-category report pages from several months into one. The backend
+ * endpoint is month-only, so a Trimestre/Ano period is built by calling it
+ * once per month and combining the results here — same idea as the backend's
+ * own per-month aggregation (sum totals, recompute pct against the merged
+ * grand total, sort descending).
+ *
+ * A single page is returned as-is: `pct` already came straight from the
+ * backend's own (possibly larger) grand total for that month, and
+ * recomputing it from just the categories in this page would silently
+ * change the Mês period's numbers for no reason.
+ */
+export function mergeByCategory(
+  pages: ApiReportByCategory[][],
+): ApiReportByCategory[] {
+  if (pages.length <= 1) return pages[0] ?? [];
+
+  const merged = new Map<string, ApiReportByCategory>();
+  for (const page of pages) {
+    for (const item of page) {
+      const existing = merged.get(item.categoryId);
+      if (existing) existing.total += item.total;
+      else merged.set(item.categoryId, { ...item });
+    }
+  }
+
+  const grandTotal = Array.from(merged.values()).reduce((sum, i) => sum + i.total, 0);
+  return Array.from(merged.values())
+    .map((item) => ({ ...item, pct: grandTotal > 0 ? (item.total / grandTotal) * 100 : 0 }))
+    .sort((a, b) => b.total - a.total);
+}
+
+/** Same idea as {@link mergeByCategory} for by-bank pages (no pct to redo). */
+export function mergeByBank(pages: ApiReportByBank[][]): ApiReportByBank[] {
+  const merged = new Map<string, ApiReportByBank>();
+  for (const page of pages) {
+    for (const item of page) {
+      const existing = merged.get(item.bankId);
+      if (existing) existing.total += item.total;
+      else merged.set(item.bankId, { ...item });
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => b.total - a.total);
+}
+
 /** monthly-comparison → MonthPoint[] with abbreviated pt-BR month names. */
 export function toMonthPoints(list: ApiMonthlyComparison[]): MonthPoint[] {
   return list.map((x) => {

@@ -299,5 +299,26 @@ describe('ReportsService', () => {
       expect(last.receitas).toBe(1000);
       expect(last.despesas).toBe(250);
     });
+
+    it('buckets a day-1 transaction into its own month from the real runtime shape (regression: date columns hydrate as a plain YYYY-MM-DD string, not a Date — new Date(str) parses as UTC midnight, and reading it back with getMonth() in local time used to shift day-1 transactions into the previous month outside UTC)', async () => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      // The exact shape TypeORM returns for a `date` column at runtime —
+      // deliberately a string, not the Date the TS type on the entity claims.
+      const firstOfMonth = `${y}-${m}-01`;
+
+      repo.find!.mockResolvedValue([
+        makeTransaction({
+          amount: 777,
+          type: TransactionType.EXPENSE,
+          transactionDate: firstOfMonth as unknown as Date,
+        }),
+      ]);
+
+      const result = await service.monthlyComparison('user-1', 3);
+      const last = result[result.length - 1];
+      expect(last.despesas).toBe(777);
+    });
   });
 });

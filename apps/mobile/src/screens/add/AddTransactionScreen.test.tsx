@@ -65,4 +65,64 @@ describe('AddTransactionScreen', () => {
     expect(queryByText('Compras')).toBeNull();
     expect(getByText('Salário')).toBeTruthy();
   });
+
+  // Regression coverage for the optimistic-success bug: the overlay used to
+  // appear (and the sheet auto-close) as soon as save() was pressed,
+  // regardless of whether the POST actually succeeded.
+  describe('save (real mutation outcome, not optimistic)', () => {
+    const fillValidForm = (utils: Awaited<ReturnType<typeof renderScreen>>) => {
+      fireEvent.press(utils.getByText('Compras'));
+      fireEvent.changeText(utils.getByLabelText('Valor'), '500');
+    };
+
+    it('does not show the success overlay until the mutation actually resolves', async () => {
+      const utils = await renderScreen();
+      fillValidForm(utils);
+
+      fireEvent.press(utils.getByText('Adicionar despesa'));
+      // Not shown synchronously on press — only once the request resolves.
+      expect(utils.queryByText('Despesa registrada!')).toBeNull();
+
+      await waitFor(() =>
+        expect(utils.getByText('Despesa registrada!')).toBeTruthy(),
+      );
+    });
+
+    it('shows a pending state and ignores a second press before the first request resolves', async () => {
+      const utils = await renderScreen();
+      fillValidForm(utils);
+      // api.post's call history carries over from earlier tests in this file
+      // (the module mock is built once, not per-test) — clear it so the
+      // count below reflects only this test's presses.
+      (api.post as jest.Mock).mockClear();
+
+      fireEvent.press(utils.getByText('Adicionar despesa'));
+      expect(utils.getByText('Salvando…')).toBeTruthy();
+      // Second press while still pending — must not fire another submit.
+      fireEvent.press(utils.getByText('Salvando…'));
+
+      await waitFor(() =>
+        expect(utils.getByText('Despesa registrada!')).toBeTruthy(),
+      );
+      expect(
+        (api.post as jest.Mock).mock.calls.filter(([url]) => url === '/transactions'),
+      ).toHaveLength(1);
+    });
+
+    it('surfaces the API error and never shows the success overlay when the request fails', async () => {
+      (api.post as jest.Mock).mockRejectedValueOnce({
+        isAxiosError: true,
+        response: { data: { message: 'Bank not found' } },
+      });
+      const utils = await renderScreen();
+      fillValidForm(utils);
+
+      fireEvent.press(utils.getByText('Adicionar despesa'));
+
+      await waitFor(() => expect(utils.getByText('Bank not found')).toBeTruthy());
+      expect(utils.queryByText('Despesa registrada!')).toBeNull();
+      // The button is interactive again — not left stuck in a pending state.
+      expect(utils.getByText('Adicionar despesa')).toBeTruthy();
+    });
+  });
 });

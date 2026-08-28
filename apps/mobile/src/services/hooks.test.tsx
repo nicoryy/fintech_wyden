@@ -10,6 +10,7 @@ jest.mock('./api', () => {
 });
 
 import { queryWrapper } from '../test-utils/providers';
+import { FIX_BY_BANK } from '../test-utils/api-fixtures';
 import {
   queryKeys,
   useDashboard,

@@ -24,6 +24,7 @@ import { useCreateTransaction } from '../../services/hooks';
 import { TransactionTypeEnum, type Bank, type Category } from '../../services/types';
 import { brl, brlParts } from '../../utils/format';
 import { colors, tileShadow, withAlpha } from '../../theme/tokens';
+import { apiErrorMessage } from '../auth/errors';
 
 type TxType = 'despesa' | 'receita';
 
@@ -39,7 +40,13 @@ export function AddTransactionScreen() {
   const [selectedBank, setSelectedBank] = useState<string | null>(null);
   const [desc, setDesc] = useState('');
   const [saved, setSaved] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
   const amountRef = useRef<TextInput>(null);
+  // Synchronous re-entrancy guard for a fast double-tap: createTx.isPending
+  // is only current after React (and React Query's own notifyManager) have
+  // had a render cycle to propagate it, which a second tap can outrace. A
+  // plain ref flips instantly, independent of any of that scheduling.
+  const submittingRef = useRef(false);
 
   // Effective bank: the user's pick, else the first catalog bank (no state sync).
   const bank = selectedBank ?? banks[0]?.id ?? null;
@@ -66,16 +73,31 @@ export function AddTransactionScreen() {
   };
 
   const save = () => {
-    if (!valid || !cat || !bank) return;
-    setSaved(true);
-    createTx.mutate({
-      type: income ? TransactionTypeEnum.INCOME : TransactionTypeEnum.EXPENSE,
-      value: cents / 100,
-      categoryId: cat,
-      bankId: bank,
-      description: desc.trim() || undefined,
-    });
-    setTimeout(close, 1150);
+    if (!valid || !cat || !bank || submittingRef.current) return;
+    submittingRef.current = true;
+    setApiError(null);
+    createTx.mutate(
+      {
+        type: income ? TransactionTypeEnum.INCOME : TransactionTypeEnum.EXPENSE,
+        value: cents / 100,
+        categoryId: cat,
+        bankId: bank,
+        description: desc.trim() || undefined,
+      },
+      {
+        // The success overlay used to show unconditionally as soon as save()
+        // was pressed, before the request even resolved — a failed POST still
+        // told the user "Despesa registrada!". It now only fires here.
+        onSuccess: () => {
+          setSaved(true);
+          setTimeout(close, 1150);
+        },
+        onError: (err) => {
+          submittingRef.current = false;
+          setApiError(apiErrorMessage(err, 'Não foi possível salvar. Tente novamente.'));
+        },
+      },
+    );
   };
 
   const { int, dec } = brlParts(cents / 100);
@@ -159,19 +181,31 @@ export function AddTransactionScreen() {
 
       {/* save */}
       <View style={[styles.saveWrap, { paddingBottom: Math.max(insets.bottom, 16) + 14 }]}>
+        {apiError && (
+          <Txt style={styles.apiError} accessibilityRole="alert">
+            {apiError}
+          </Txt>
+        )}
         <Press
           accessibilityLabel={income ? 'Adicionar receita' : 'Adicionar despesa'}
-          disabled={!valid}
+          disabled={!valid || createTx.isPending}
           onPress={save}
           style={[
             styles.saveBtn,
             {
-              backgroundColor: valid ? (income ? colors.green : colors.ink) : colors.line,
+              backgroundColor:
+                valid && !createTx.isPending ? (income ? colors.green : colors.ink) : colors.line,
             },
-            valid && tileShadow,
+            valid && !createTx.isPending && tileShadow,
           ]}
         >
-          <Txt style={styles.saveText}>{income ? 'Adicionar receita' : 'Adicionar despesa'}</Txt>
+          <Txt style={styles.saveText}>
+            {createTx.isPending
+              ? 'Salvando…'
+              : income
+                ? 'Adicionar receita'
+                : 'Adicionar despesa'}
+          </Txt>
         </Press>
       </View>
 
@@ -370,6 +404,7 @@ const styles = StyleSheet.create({
   detailInput: { flex: 1, fontSize: 14.5, fontWeight: '600', color: colors.ink, padding: 0, fontFamily: 'PlusJakarta_600SemiBold' },
 
   saveWrap: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.bg },
+  apiError: { fontSize: 13.5, color: colors.orange, marginBottom: 10, fontWeight: '700', textAlign: 'center' },
   saveBtn: { height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   saveText: { fontSize: 16.5, fontWeight: '800', color: colors.white },
 

@@ -160,7 +160,7 @@ export class ReportsService {
     }
 
     for (const tx of txs) {
-      const key = this.monthKey(new Date(tx.transactionDate));
+      const key = this.monthKey(tx.transactionDate);
       const bucket = buckets.get(key);
       if (!bucket) continue;
       const amount = Number(tx.amount);
@@ -205,7 +205,20 @@ export class ReportsService {
     return { start, end };
   }
 
-  private monthKey(date: Date): string {
+  /**
+   * `Transaction.transactionDate` is typed `Date` but the column is
+   * Postgres `date` — TypeORM hydrates it as a plain `'YYYY-MM-DD'` string
+   * at runtime (see `PostgresDriver.prepareHydratedValue` /
+   * `DateUtils.mixedDateToDateString`), not a `Date` instance. Slicing that
+   * string is what avoids the bug this used to have: `new Date('2026-03-01')`
+   * parses as UTC midnight, but `.getFullYear()/.getMonth()` read back in
+   * the process's *local* timezone — so outside UTC (e.g. local dev on a
+   * Brazil-timezone machine, UTC-3), every day-1 transaction landed one
+   * month early. The `Date` branch below only still runs for the pre-seeded
+   * bucket keys, which are built from real local `Date` objects on purpose.
+   */
+  private monthKey(date: Date | string): string {
+    if (typeof date === 'string') return date.slice(0, 7);
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
     return `${y}-${m}`;
