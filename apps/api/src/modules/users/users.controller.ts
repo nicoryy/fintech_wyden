@@ -1,10 +1,8 @@
 import {
   Controller,
-  Get,
   Post,
   Body,
   Patch,
-  Param,
   Delete,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +10,8 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import type { JwtPayload } from '../../common/types/jwt-payload.type';
 
 @Controller('users')
 export class UsersController {
@@ -22,27 +22,21 @@ export class UsersController {
     return this.usersService.create(dto);
   }
 
+  // No :id routes and no GET / here on purpose — this used to accept an
+  // arbitrary user id from the URL with nothing checking it against the
+  // caller's token (IDOR: any authenticated user could read/edit/delete any
+  // other user, including changing their password). Every write is scoped to
+  // the token's own id via @CurrentUser(); profile reads already live at
+  // GET /auth/me.
   @UseGuards(JwtAuthGuard)
-  @Get()
-  findAll() {
-    return this.usersService.findAll();
+  @Patch('me')
+  update(@CurrentUser() user: JwtPayload, @Body() dto: UpdateUserDto) {
+    return this.usersService.update(user.id, dto);
   }
 
   @UseGuards(JwtAuthGuard)
-  @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Patch(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
-    return this.usersService.update(id, dto);
-  }
-
-  @UseGuards(JwtAuthGuard)
-  @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  @Delete('me')
+  remove(@CurrentUser() user: JwtPayload) {
+    return this.usersService.remove(user.id);
   }
 }

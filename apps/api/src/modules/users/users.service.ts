@@ -46,10 +46,6 @@ export class UsersService {
     return user;
   }
 
-  findAll(): Promise<User[]> {
-    return this.usersRepo.find();
-  }
-
   async findOne(id: string): Promise<User> {
     const user = await this.usersRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException(`User ${id} not found`);

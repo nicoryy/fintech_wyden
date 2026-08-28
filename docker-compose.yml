@@ -49,9 +49,13 @@ services:
       DB_USER: wyden
       DB_PASS: wyden_secret
       DB_NAME: wyden_db
-      JWT_SECRET: change-this-secret-in-production
+      # NODE_ENV=production here makes config/env.validation.ts refuse the
+      # documentation placeholder ('change-this-secret-in-production') at
+      # boot — these are local-only dev secrets, not real production values.
+      # Real deploys use docker-compose.prod.yml + .env.production instead.
+      JWT_SECRET: local-docker-dev-secret-bd4cab4543285ab7
       JWT_EXPIRES_IN: 7d
-      JWT_REFRESH_SECRET: change-this-refresh-secret-in-production
+      JWT_REFRESH_SECRET: local-docker-dev-refresh-secret-0bfda8d3e1b80257
       JWT_REFRESH_EXPIRES_IN: 30d
       REDIS_HOST: redis
       REDIS_PORT: 6379
