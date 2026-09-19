@@ -74,11 +74,8 @@ export class AuthService {
     });
   }
 
-  /** Falls back to the access-token secret when no dedicated one is set. */
+  /** Required and validated at boot (see config/env.validation.ts). */
   private refreshSecret(): string {
-    return this.config.get<string>(
-      'JWT_REFRESH_SECRET',
-      this.config.get<string>('JWT_SECRET', 'change-this-secret-in-production'),
-    );
+    return this.config.getOrThrow<string>('JWT_REFRESH_SECRET');
   }
 }

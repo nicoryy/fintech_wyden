@@ -27,6 +27,8 @@ Backend NestJS para o Wyden.
 - Nunca expor passwordHash nas responses (usar @Exclude() + ClassSerializerInterceptor)
 - Prefixo global: /api/v1
 - Transações devem atualizar currentBalance do Bank ao serem criadas, atualizadas e deletadas
+- `JWT_SECRET`/`JWT_REFRESH_SECRET` são obrigatórios e validados no boot (`config/env.validation.ts`, plugado via `ConfigModule.forRoot({ validate })`); em `NODE_ENV=production` o boot falha se algum dos dois ainda for o placeholder de `.env.example`
+- Rate limiting de fato ativo via `APP_GUARD` (`ThrottlerGuard`) em `app.module.ts` — `ThrottlerModule.forRoot` sozinho só registra as opções, não guarda nenhuma rota
 
 ## Seed de categorias
 - `CategoriesService.seedDefaults()` cria as categorias padrão do app (10 EXPENSE, 5 INCOME) com icon/color alinhados ao design do frontend.
@@ -54,7 +56,7 @@ Todas protegidas por JwtAuthGuard, isoladas por `userId`. Mês default = mês at
 ## Refresh token
 - `AuthService.login` retorna `access_token` + `refresh_token` (JWT com expiração maior, default `30d`).
 - `POST /auth/refresh` recebe `{ refresh_token }`, valida assinatura/expiração e retorna novo `{ access_token }`.
-- Segredo: `JWT_REFRESH_SECRET` (default para `JWT_SECRET`). Expiração: `JWT_REFRESH_EXPIRES_IN` (default `30d`).
+- Segredo: `JWT_REFRESH_SECRET` (obrigatório, sem fallback — validado no boot junto com `JWT_SECRET`, ver `config/env.validation.ts`). Expiração: `JWT_REFRESH_EXPIRES_IN` (default `30d`).
 - Refresh tokens são **stateless** nesta fase (não persistidos no banco).
 
 ## Database
@@ -71,7 +73,7 @@ Todas protegidas por JwtAuthGuard, isoladas por `userId`. Mês default = mês at
 - POST /api/v1/auth/refresh
 - GET /api/v1/auth/me  (perfil do usuário logado — { id, name, email })
 - POST /api/v1/users/register
-- GET/PATCH/DELETE /api/v1/users/:id
+- PATCH/DELETE /api/v1/users/me (escopado ao usuário do token — sem rota por :id arbitrário)
 - CRUD /api/v1/banks
 - CRUD /api/v1/categories
 - POST /api/v1/categories/seed

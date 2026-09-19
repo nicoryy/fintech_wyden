@@ -7,7 +7,7 @@ import { View, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Card, Donut, Icon, Press, ProgressBar, ProgressRing, Sparkline, Txt } from '../../components';
+import { Card, Donut, ErrorState, Icon, Press, ProgressBar, ProgressRing, Sparkline, Txt } from '../../components';
 import { useCatalog } from '../../context/CatalogContext';
 import { useOptionalAuth } from '../../context/AuthContext';
 import { useDashboard, useInsight } from '../../services/hooks';
@@ -27,9 +27,16 @@ const TAB_BAR_SPACE = 110;
 export function DashboardScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { data } = useDashboard();
+  const { data, isError, refetch } = useDashboard();
   const { catById } = useCatalog();
 
+  if (isError) {
+    return (
+      <View style={[styles.flex, styles.screenPad, { justifyContent: 'center' }]}>
+        <ErrorState onRetry={() => void refetch()} />
+      </View>
+    );
+  }
   if (!data) return <View style={styles.flex} />;
 
   return (

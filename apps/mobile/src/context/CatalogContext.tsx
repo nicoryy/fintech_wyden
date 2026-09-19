@@ -10,6 +10,7 @@
  */
 import React, { createContext, useContext, useMemo } from 'react';
 
+import { useOptionalAuth } from './AuthContext';
 import { useBanks, useCategories } from '../services/hooks';
 import {
   BANKS as MOCK_BANKS,
@@ -34,8 +35,16 @@ interface CatalogValue {
 const CatalogContext = createContext<CatalogValue | null>(null);
 
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
-  const categoriesQ = useCategories();
-  const banksQ = useBanks();
+  const auth = useOptionalAuth();
+  // Previously fired unconditionally, including on the login screen for a
+  // guest session — /categories and /banks would 401, trigger a refresh
+  // attempt, and (on that failing too) log the guest out of a session they
+  // never had. Only gate when a real AuthContext is present and says
+  // 'guest'; with no AuthProvider in scope (e.g. tests rendering
+  // CatalogProvider directly) there is no session concept to gate on.
+  const enabled = auth ? auth.status === 'authed' : true;
+  const categoriesQ = useCategories({ enabled });
+  const banksQ = useBanks({ enabled });
 
   const value = useMemo<CatalogValue>(() => {
     const categories = categoriesQ.data ?? [];

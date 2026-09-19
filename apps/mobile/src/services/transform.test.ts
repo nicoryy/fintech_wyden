@@ -16,6 +16,8 @@ import {
   placeholderGoal,
   toSpendSlices,
   toBankSpend,
+  mergeByCategory,
+  mergeByBank,
   toMonthPoints,
   deriveEvolution,
   deriveSaldoDelta,
@@ -170,6 +172,68 @@ describe('reports transforms', () => {
     const list: ApiMonthlyComparison[] = [{ month: '2026-01', receitas: 10, despesas: 5 }];
     expect(toMonthPoints(list)).toEqual([{ m: 'Jan', rec: 10, desp: 5 }]);
   });
+
+  describe('mergeByCategory', () => {
+    const page = (total: number, pct: number): ApiReportByCategory[] => [
+      { categoryId: 'c', name: 'C', icon: 'bag', color: '#000', total, pct },
+    ];
+
+    it('returns a single page untouched — its pct already reflects the backend grand total', () => {
+      const single = page(100, 37); // 37% of a real month total this fixture doesn't show
+      expect(mergeByCategory([single])).toBe(single);
+    });
+
+    it('returns an empty array when given no pages at all', () => {
+      expect(mergeByCategory([])).toEqual([]);
+    });
+
+    it('sums totals across months and recomputes pct against the merged grand total', () => {
+      const jan: ApiReportByCategory[] = [
+        { categoryId: 'food', name: 'Alimentação', icon: 'food', color: '#F00', total: 300, pct: 60 },
+        { categoryId: 'shop', name: 'Compras', icon: 'bag', color: '#0F0', total: 200, pct: 40 },
+      ];
+      const feb: ApiReportByCategory[] = [
+        { categoryId: 'food', name: 'Alimentação', icon: 'food', color: '#F00', total: 100, pct: 100 },
+      ];
+
+      const merged = mergeByCategory([jan, feb]);
+
+      // food: 300+100=400, shop: 200 -> grand total 600.
+      expect(merged).toEqual([
+        expect.objectContaining({ categoryId: 'food', total: 400, pct: expect.closeTo(66.67, 1) }),
+        expect.objectContaining({ categoryId: 'shop', total: 200, pct: expect.closeTo(33.33, 1) }),
+      ]);
+    });
+
+    it('sorts the merged result by total descending', () => {
+      const a: ApiReportByCategory[] = [
+        { categoryId: 'x', name: 'X', icon: 'bag', color: '#000', total: 10, pct: 100 },
+      ];
+      const b: ApiReportByCategory[] = [
+        { categoryId: 'y', name: 'Y', icon: 'bag', color: '#000', total: 90, pct: 100 },
+      ];
+      expect(mergeByCategory([a, b]).map((i) => i.categoryId)).toEqual(['y', 'x']);
+    });
+  });
+
+  describe('mergeByBank', () => {
+    it('sums totals per bank across pages and sorts descending', () => {
+      const jan: ApiReportByBank[] = [
+        { bankId: 'nu', name: 'Nubank', total: 100 },
+        { bankId: 'bb', name: 'BB', total: 50 },
+      ];
+      const feb: ApiReportByBank[] = [{ bankId: 'nu', name: 'Nubank', total: 20 }];
+
+      expect(mergeByBank([jan, feb])).toEqual([
+        { bankId: 'nu', name: 'Nubank', total: 120 },
+        { bankId: 'bb', name: 'BB', total: 50 },
+      ]);
+    });
+
+    it('returns an empty array when given no pages', () => {
+      expect(mergeByBank([])).toEqual([]);
+    });
+  });
 });
 
 describe('deriveEvolution', () => {
@@ -278,15 +342,24 @@ describe('deriveBehavior', () => {
 });
 
 describe('toInsightDetail', () => {
-  it('returns an empty state when there are no insights', () => {
+  it('returns an honest empty state when there are no insights — no fabricated weeklyPattern/metrics/tip', () => {
     const out = toInsightDetail([]);
     expect(out.title).toBe('Sem insights ainda');
-    expect(out.weeklyPattern.length).toBe(7);
+    expect(out.weeklyPattern).toBeUndefined();
+    expect(out.metrics).toBeUndefined();
+    expect(out.tip).toBeUndefined();
   });
-  it('maps the first insight onto the detail shape', () => {
+
+  it('maps the first insight onto the detail shape, without a fabricated weeklyPattern or peak-hour metric', () => {
     const list: ApiInsight[] = [{ id: 'i', type: InsightTypeEnum.IMPULSIVITY, score: 72, title: 'Gasto por impulso', description: 'desc' }];
     const out = toInsightDetail(list);
     expect(out.title).toBe('Gasto por impulso');
-    expect(out.metrics[0].value).toBe('Alto'); // score 72 → Alto
+    // Only the score-derived metric — the invented "Horário de pico: 21h–23h"
+    // is gone, and so is the invented weeklyPattern (regression coverage).
+    expect(out.metrics).toEqual([
+      { label: 'Índice de impulso', value: 'Alto', tone: 'orange', sub: 'score 72' },
+    ]);
+    expect(out.weeklyPattern).toBeUndefined();
+    expect(out.tip).toEqual({ title: 'Dica para esta semana', body: 'desc' });
   });
 });

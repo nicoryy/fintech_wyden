@@ -16,10 +16,9 @@ import { UsersModule } from '../users/users.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
-        secret: config.get<string>(
-          'JWT_SECRET',
-          'change-this-secret-in-production',
-        ),
+        // JWT_SECRET is required and validated at boot (see
+        // config/env.validation.ts) — no more silent hardcoded fallback.
+        secret: config.getOrThrow<string>('JWT_SECRET'),
         signOptions: { expiresIn: config.get('JWT_EXPIRES_IN', '7d') },
       }),
     }),

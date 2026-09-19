@@ -236,6 +236,51 @@ export function toBankSpend(list: ApiReportByBank[]): BankSpend[] {
   return list.map((x) => ({ bankId: x.bankId, value: x.total }));
 }
 
+/**
+ * Merges by-category report pages from several months into one. The backend
+ * endpoint is month-only, so a Trimestre/Ano period is built by calling it
+ * once per month and combining the results here — same idea as the backend's
+ * own per-month aggregation (sum totals, recompute pct against the merged
+ * grand total, sort descending).
+ *
+ * A single page is returned as-is: `pct` already came straight from the
+ * backend's own (possibly larger) grand total for that month, and
+ * recomputing it from just the categories in this page would silently
+ * change the Mês period's numbers for no reason.
+ */
+export function mergeByCategory(
+  pages: ApiReportByCategory[][],
+): ApiReportByCategory[] {
+  if (pages.length <= 1) return pages[0] ?? [];
+
+  const merged = new Map<string, ApiReportByCategory>();
+  for (const page of pages) {
+    for (const item of page) {
+      const existing = merged.get(item.categoryId);
+      if (existing) existing.total += item.total;
+      else merged.set(item.categoryId, { ...item });
+    }
+  }
+
+  const grandTotal = Array.from(merged.values()).reduce((sum, i) => sum + i.total, 0);
+  return Array.from(merged.values())
+    .map((item) => ({ ...item, pct: grandTotal > 0 ? (item.total / grandTotal) * 100 : 0 }))
+    .sort((a, b) => b.total - a.total);
+}
+
+/** Same idea as {@link mergeByCategory} for by-bank pages (no pct to redo). */
+export function mergeByBank(pages: ApiReportByBank[][]): ApiReportByBank[] {
+  const merged = new Map<string, ApiReportByBank>();
+  for (const page of pages) {
+    for (const item of page) {
+      const existing = merged.get(item.bankId);
+      if (existing) existing.total += item.total;
+      else merged.set(item.bankId, { ...item });
+    }
+  }
+  return Array.from(merged.values()).sort((a, b) => b.total - a.total);
+}
+
 /** monthly-comparison → MonthPoint[] with abbreviated pt-BR month names. */
 export function toMonthPoints(list: ApiMonthlyComparison[]): MonthPoint[] {
   return list.map((x) => {
@@ -380,11 +425,14 @@ function scoreBand(score: number): string {
 }
 
 /**
- * DERIVED: the backend `GET /insights` returns flat insight records (no weekly
- * pattern / tips in Phase 1). When one exists we map it onto the rich
- * `InsightDetail` UI shape, filling the visual-only fields (weeklyPattern, tip)
- * with neutral placeholders. When there are none we return a friendly empty
- * state. Phase 2's engine will populate these for real.
+ * The backend `GET /insights` returns flat records — `type`, `title`,
+ * `description`, `score`, nothing per-weekday or per-hour. This used to fill
+ * `weeklyPattern` and a "Horário de pico" metric with hardcoded numbers
+ * regardless of what (if anything) the API returned, presenting invented
+ * data as if it were measured. Now `weeklyPattern` and the peak-hour metric
+ * are only ever emitted once the engine actually produces them (Phase 2) —
+ * `scoreBand` is the one metric genuinely derived from the record's own
+ * `score`, so it's the only one kept today.
  */
 export function toInsightDetail(list: ApiInsight[]): InsightDetail {
   const first = list[0];
@@ -394,41 +442,14 @@ export function toInsightDetail(list: ApiInsight[]): InsightDetail {
       title: 'Sem insights ainda',
       description:
         'Continue registrando suas transações. Em breve traremos uma leitura do seu comportamento financeiro.',
-      weeklyPattern: [
-        { day: 'Seg', value: 0.2 },
-        { day: 'Ter', value: 0.2 },
-        { day: 'Qua', value: 0.2 },
-        { day: 'Qui', value: 0.2 },
-        { day: 'Sex', value: 0.2 },
-        { day: 'Sáb', value: 0.2 },
-        { day: 'Dom', value: 0.2 },
-      ],
-      metrics: [
-        { label: 'Índice de impulso', value: '—', tone: 'orange', sub: 'sem dados' },
-        { label: 'Horário de pico', value: '—', tone: 'purple', sub: 'sem dados' },
-      ],
-      tip: {
-        title: 'Dica',
-        body: 'Registre ao menos uma semana de gastos para liberar seus primeiros insights.',
-      },
     };
   }
   return {
     type: first.type,
     title: first.title,
     description: first.description,
-    weeklyPattern: [
-      { day: 'Seg', value: 0.3 },
-      { day: 'Ter', value: 0.26 },
-      { day: 'Qua', value: 0.34 },
-      { day: 'Qui', value: 0.4 },
-      { day: 'Sex', value: 0.62 },
-      { day: 'Sáb', value: 0.95, hot: true },
-      { day: 'Dom', value: 0.8, hot: true },
-    ],
     metrics: [
       { label: 'Índice de impulso', value: scoreBand(first.score), tone: 'orange', sub: `score ${first.score}` },
-      { label: 'Horário de pico', value: '21h–23h', tone: 'purple', sub: 'Sáb e Dom' },
     ],
     tip: {
       title: 'Dica para esta semana',

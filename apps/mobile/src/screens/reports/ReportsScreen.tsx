@@ -7,7 +7,7 @@ import { View, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Icon, Press, ProgressBar, Txt } from '../../components';
+import { ErrorState, Icon, Press, ProgressBar, Txt } from '../../components';
 import { useCatalog } from '../../context/CatalogContext';
 import { currentMonth, useReports, type ReportPeriod } from '../../services/hooks';
 import { monthNamePt } from '../../services/transform';
@@ -21,9 +21,16 @@ export function ReportsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [period, setPeriod] = useState<ReportPeriod>('Mês');
-  const { data } = useReports(period);
+  const { data, isError, refetch } = useReports(period);
   const { catById, bankById } = useCatalog();
 
+  if (isError) {
+    return (
+      <View style={[styles.flex, { paddingHorizontal: 16, justifyContent: 'center' }]}>
+        <ErrorState onRetry={() => void refetch()} />
+      </View>
+    );
+  }
   if (!data) return <View style={styles.flex} />;
 
   return (

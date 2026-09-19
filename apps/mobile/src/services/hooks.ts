@@ -17,6 +17,8 @@ import {
   deriveSaldoDelta,
   economiaForPeriod,
   groupByDay,
+  mergeByBank,
+  mergeByCategory,
   placeholderGoal,
   toBankSpend,
   toBanks,
@@ -69,6 +71,14 @@ function previousMonth(now: Date = new Date()): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+/** The `n` months ending in the current one, oldest first, as 'YYYY-MM'. */
+function lastNMonths(n: number, now: Date = new Date()): string[] {
+  return Array.from({ length: n }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (n - 1 - i), 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+}
+
 /** Bounds [start, end) ISO dates for a 'YYYY-MM' month. */
 function monthRange(month: string): { startDate: string; endDate: string } {
   const [y, m] = month.split('-').map(Number);
@@ -79,19 +89,21 @@ function monthRange(month: string): { startDate: string; endDate: string } {
 
 // ── Catalog (categories + banks) ────────────────────────────────────────────
 
-export function useCategories() {
+export function useCategories(options: { enabled?: boolean } = {}) {
   return useQuery<Category[]>({
     queryKey: queryKeys.categories,
     queryFn: async () => toCategories((await api.get<ApiCategory[]>('/categories')).data),
     staleTime: 5 * 60_000,
+    enabled: options.enabled ?? true,
   });
 }
 
-export function useBanks() {
+export function useBanks(options: { enabled?: boolean } = {}) {
   return useQuery<Bank[]>({
     queryKey: queryKeys.banks,
     queryFn: async () => toBanks((await api.get<ApiBank[]>('/banks')).data),
     staleTime: 5 * 60_000,
+    enabled: options.enabled ?? true,
   });
 }
 
@@ -165,6 +177,11 @@ const PERIOD_MONTHS: Record<ReportPeriod, number> = {
  * hero aggregates over the selected `period` (the backend's summary endpoint is
  * month-only, so we derive period economia from monthly-comparison). The 12-month
  * window also feeds the chart (sliced to the last 6) and the period rollups.
+ *
+ * `by-category`/`by-bank` are month-only backend endpoints too — for Trimestre/
+ * Ano we fetch one page per month in the period and merge them client-side
+ * (see `mergeByCategory`/`mergeByBank`), so switching the period actually
+ * changes the category/bank breakdown instead of only the economia hero.
  */
 export function useReports(period: ReportPeriod = 'Mês') {
   return useQuery<Reports>({
@@ -174,10 +191,21 @@ export function useReports(period: ReportPeriod = 'Mês') {
       const prev = previousMonth();
       const curRange = monthRange(month);
       const prevRange = monthRange(prev);
+      const periodMonths = lastNMonths(PERIOD_MONTHS[period]);
 
-      const [byCategory, byBank, monthly, curTx, prevTx] = await Promise.all([
-        api.get<ApiReportByCategory[]>('/reports/by-category', { params: { month, type: 'expense' } }),
-        api.get<ApiReportByBank[]>('/reports/by-bank', { params: { month } }),
+      const [byCategoryPages, byBankPages, monthly, curTx, prevTx] = await Promise.all([
+        Promise.all(
+          periodMonths.map((m) =>
+            api
+              .get<ApiReportByCategory[]>('/reports/by-category', { params: { month: m, type: 'expense' } })
+              .then((r) => r.data),
+          ),
+        ),
+        Promise.all(
+          periodMonths.map((m) =>
+            api.get<ApiReportByBank[]>('/reports/by-bank', { params: { month: m } }).then((r) => r.data),
+          ),
+        ),
         api.get<ApiMonthlyComparison[]>('/reports/monthly-comparison', { params: { months: 12 } }),
         api.get<ApiTransaction[]>('/transactions', { params: curRange }),
         api.get<ApiTransaction[]>('/transactions', { params: prevRange }),
@@ -186,8 +214,8 @@ export function useReports(period: ReportPeriod = 'Mês') {
       return {
         economia: economiaForPeriod(monthly.data, PERIOD_MONTHS[period]),
         months: toMonthPoints(monthly.data.slice(-6)),
-        spend: toSpendSlices(byCategory.data),
-        byBank: toBankSpend(byBank.data),
+        spend: toSpendSlices(mergeByCategory(byCategoryPages)),
+        byBank: toBankSpend(mergeByBank(byBankPages)),
         behavior: deriveBehavior(curTx.data, prevTx.data),
       };
     },

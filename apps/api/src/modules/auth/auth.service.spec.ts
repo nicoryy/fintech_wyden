@@ -21,12 +21,15 @@ describe('AuthService', () => {
   let service: AuthService;
   let usersService: { findByEmail: jest.Mock; findOne: jest.Mock };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
-  let config: { get: jest.Mock };
+  let config: { get: jest.Mock; getOrThrow: jest.Mock };
 
   beforeEach(async () => {
     usersService = { findByEmail: jest.fn(), findOne: jest.fn() };
     jwtService = { sign: jest.fn(), verify: jest.fn() };
-    config = { get: jest.fn() };
+    config = { get: jest.fn(), getOrThrow: jest.fn() };
+    // refreshSecret() reads JWT_REFRESH_SECRET via getOrThrow (required, no
+    // more get(key, fallback)) — give every test a sane default.
+    config.getOrThrow.mockReturnValue('refresh-secret');
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -105,7 +108,6 @@ describe('AuthService', () => {
       const user = makeUser({ id: 'user-1', email: 'a@b.com' });
       jwtService.verify.mockReturnValue({ sub: 'user-1', email: 'a@b.com' });
       usersService.findByEmail.mockResolvedValue(user);
-      config.get.mockReturnValue('refresh-secret');
       jwtService.sign.mockReturnValue('new-access-token');
 
       await expect(service.refresh('valid-token')).resolves.toEqual({
@@ -117,7 +119,6 @@ describe('AuthService', () => {
       jwtService.verify.mockImplementation(() => {
         throw new Error('invalid signature');
       });
-      config.get.mockReturnValue('refresh-secret');
 
       await expect(service.refresh('bad-token')).rejects.toThrow(
         UnauthorizedException,
@@ -127,7 +128,6 @@ describe('AuthService', () => {
     it('throws UnauthorizedException when the user no longer exists', async () => {
       jwtService.verify.mockReturnValue({ sub: 'user-1', email: 'a@b.com' });
       usersService.findByEmail.mockResolvedValue(null);
-      config.get.mockReturnValue('refresh-secret');
 
       await expect(service.refresh('valid-token')).rejects.toThrow(
         UnauthorizedException,
@@ -141,7 +141,6 @@ describe('AuthService', () => {
         email: 'a@b.com',
       });
       usersService.findByEmail.mockResolvedValue(user);
-      config.get.mockReturnValue('refresh-secret');
 
       await expect(service.refresh('valid-token')).rejects.toThrow(
         UnauthorizedException,

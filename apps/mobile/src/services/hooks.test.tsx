@@ -10,6 +10,7 @@ jest.mock('./api', () => {
 });
 
 import { queryWrapper } from '../test-utils/providers';
+import { FIX_BY_BANK } from '../test-utils/api-fixtures';
 import {
   queryKeys,
   useDashboard,
@@ -74,11 +75,39 @@ describe('React Query data hooks (API-backed via mocked axios)', () => {
     expect(typeof r.behavior.impulsivity).toBe('string');
   });
 
-  it('useInsight maps the first insight onto the detail shape', async () => {
+  it('useReports fetches by-category/by-bank once per month in the period and merges the totals (regression: period used to only affect economia)', async () => {
+    // api.get's call history carries over from earlier tests in this file
+    // (the module mock is built once, not per-test) — clear it so the counts
+    // below reflect only this hook's own requests.
+    (api.get as jest.Mock).mockClear();
+    const { result } = renderHook(() => useReports('Trimestre'), { wrapper: queryWrapper() });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const byCategoryCalls = (api.get as jest.Mock).mock.calls.filter(
+      ([url]) => url === '/reports/by-category',
+    );
+    const byBankCalls = (api.get as jest.Mock).mock.calls.filter(
+      ([url]) => url === '/reports/by-bank',
+    );
+    // Trimestre = 3 months, so one call per month for each endpoint — every
+    // call hitting a distinct month (no duplicate params).
+    expect(byCategoryCalls).toHaveLength(3);
+    expect(byBankCalls).toHaveLength(3);
+    const monthsRequested = byCategoryCalls.map((c) => (c[1] as { params: { month: string } }).params.month);
+    expect(new Set(monthsRequested).size).toBe(3);
+
+    // The fixture returns the same page for every month, so merging 3
+    // identical months triples each bank's total.
+    const r = result.current.data!;
+    const nubank = r.byBank.find((b) => b.bankId === 'bank-nubank')!;
+    expect(nubank.value).toBeCloseTo(FIX_BY_BANK[0].total * 3);
+  });
+
+  it('useInsight maps the first insight onto the detail shape (no fabricated weeklyPattern)', async () => {
     const { result } = renderHook(() => useInsight(), { wrapper: queryWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data!.title).toBe('Gasto por impulso');
-    expect(result.current.data!.weeklyPattern.length).toBe(7);
+    expect(result.current.data!.weeklyPattern).toBeUndefined();
   });
 });
 

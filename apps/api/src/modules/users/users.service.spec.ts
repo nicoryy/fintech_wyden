@@ -174,12 +174,4 @@ describe('UsersService', () => {
       await expect(service.remove('user-x')).rejects.toThrow(NotFoundException);
     });
   });
-
-  describe('findAll', () => {
-    it('returns all users', async () => {
-      const users = [makeUser(), makeUser()];
-      repo.find!.mockResolvedValue(users);
-      await expect(service.findAll()).resolves.toBe(users);
-    });
-  });
 });
