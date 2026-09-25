@@ -1,6 +1,8 @@
 {
   "name": "fintech-wyden",
   "private": true,
+  "author": { "name": "Pedro Nicory", "url": "https://nicoryy.com" },
+  "homepage": "https://nicoryy.com",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "mobile": "npm run start --workspace=apps/mobile",

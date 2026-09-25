@@ -7,8 +7,15 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "extra": {
+      "author": "Pedro Nicory",
+      "authorUrl": "https://nicoryy.com"
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSHumanReadableCopyright": "Copyright © 2026 Pedro Nicory — https://nicoryy.com"
+      }
     },
     "android": {
       "adaptiveIcon": {

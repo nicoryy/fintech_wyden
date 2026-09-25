@@ -1,6 +1,8 @@
 {
   "name": "mobile",
   "version": "1.0.0",
+  "author": { "name": "Pedro Nicory", "url": "https://nicoryy.com" },
+  "homepage": "https://nicoryy.com",
   "main": "expo-router/entry",
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.4.2",
