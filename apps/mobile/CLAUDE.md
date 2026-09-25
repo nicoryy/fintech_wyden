@@ -4,7 +4,7 @@ Frontend mobile React Native + Expo para o Wyden. Recria, pixel-perfect, o
 protótipo em `design_bundle/fintech-wyden/`.
 
 ## Stack
-- Expo SDK 56, React Native 0.85, TypeScript (strict)
+- Expo SDK 57, React Native 0.86, TypeScript (strict)
 - **Expo Router** (file-based, `app/`) — entry: `expo-router/entry` (ver `package.json` `main`)
 - **React Query** (@tanstack/react-query) para data fetching/cache
 - **react-native-svg** para ícones e gráficos (sparkline, donut, ring)
@@ -139,6 +139,8 @@ alcançar a API na máquina host. iOS simulator pode usar `localhost`.
 - `npm run lint` (ESLint flat config + `eslint-config-expo`) → zero erros
 - `npm run test` → jest (jest-expo), todos passam
 - `npx expo export --platform android` → bundle compila sem erro de resolução
+- `npx expo-doctor` → 21/21 (pega `app.json` inválido e módulo nativo duplicado)
+- **Upgrade de SDK:** `npx expo install expo@^N --fix` por cima do lockfile antigo deixa cópias velhas hoistadas na raiz (ex.: 2 `react-native`; `babel-preset-expo` aninhado em `expo/node_modules`, que o `babel.config.js` não enxerga). Depois de subir, confira que `npm ls react-native` mostra **uma** versão e que o `expo-doctor` passa. `npm dedupe` é amplo demais (mexe em deps da API); prefira ajustar só as entradas do mobile.
 
 ## Testes
 - **jest-expo** + **@testing-library/react-native 13.3.3** + **react-test-renderer**.
@@ -147,5 +149,5 @@ alcançar a API na máquina host. iOS simulator pode usar `localhost`.
 - Helpers em `src/test-utils/providers.tsx` (`renderWithProviders` agora inclui o `CatalogProvider`, `queryWrapper`, `makeQueryClient`) e `src/test-utils/api-fixtures.ts` (mock de `api.get`/`api.post` por URL — os testes exercitam os transforms reais sobre fixtures).
 - Os testes de hooks/telas fazem `jest.mock('.../services/api')` para resolver fixtures sem rede. O override de ESLint em `eslint.config.js` libera `require()`/`import/first` apenas nos `*.test.*` (necessário p/ o hoisting do `jest.mock`).
 - Specs: `src/utils/*.test.ts` (funções puras), `src/services/transform.test.ts` (todos os transforms), `src/services/hooks.test.tsx` (React Query c/ axios mockado), `src/services/auth-storage.test.ts`, `src/context/AuthContext.test.tsx`, `src/components/__tests__/*` (Icon, TabBar), `src/screens/**/*.test.tsx` (Add + smoke das telas).
-- **Pin de versões (NÃO desfazer):** `react`, `react-dom` e `react-test-renderer` DEVEM ser exatamente **`19.2.3`** — o RN 0.85.3 embute `react-native-renderer@19.2.3` no bundle e peer-requer `react@^19.2.3`. Qualquer outra versão (ex: o `19.2.7` que o `react-dom` mais novo arrastava) quebra o app em runtime ("Incompatible React versions: react vs react-native-renderer") E o renderer do jest ("Can't access .root on unmounted test renderer"). O `overrides` no `package.json` raiz força `react`/`react-dom`/`react-test-renderer` a 19.2.3. `tsconfig.json` precisa de `"types": ["jest"]` (o auto-include do @types hoisted não pega com `moduleResolution: bundler`).
+- **Pin de versões (NÃO desfazer):** `react`, `react-dom` e `react-test-renderer` DEVEM ser exatamente **`19.2.3`** — o RN 0.86.3 embute `react-native-renderer@19.2.3` no bundle e peer-requer `react@^19.2.3`. Qualquer outra versão (ex: o `19.2.7` que o `react-dom` mais novo arrastava) quebra o app em runtime ("Incompatible React versions: react vs react-native-renderer") E o renderer do jest ("Can't access .root on unmounted test renderer"). O `overrides` no `package.json` raiz força `react`/`react-dom`/`react-test-renderer` a 19.2.3. `tsconfig.json` precisa de `"types": ["jest"]` (o auto-include do @types hoisted não pega com `moduleResolution: bundler`).
 ```
