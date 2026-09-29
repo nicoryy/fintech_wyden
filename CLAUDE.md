@@ -31,7 +31,7 @@ Wyden is a **personal, single-user** app — there is no scenario where data nee
 
 **Frontend modules:** Dashboard, Transactions, Banks, Categories, Reports, Behavioral Insights, Goals, Settings, Backup
 
-## Local Database Schema (`apps/mobile/src/data`, SQLite)
+## Local Database Schema (`apps/src/data`, SQLite)
 
 Money is stored in **integer cents**; dates are **epoch milliseconds**. There is no `user_id` on any table (single user) and no `insights` table (nothing has ever generated insights yet — see Behavioral Insights Engine below).
 
@@ -50,7 +50,7 @@ The Insights module is meant to compute scores for:
 - **Planning**: savings reserve + net worth evolution
 - **Emotional Spending**: purchase time-of-day, leisure categories, unplanned consumption growth
 
-Today, `useInsight()` always returns the honest "no insights yet" empty state — no engine has ever run locally or on the old API (`GET /insights` always returned `[]`). Only the per-transaction `is_impulse` heuristic (night/weekend + above-average amount — see `apps/mobile/src/data/impulse.ts`) is real. The real engine is Phase 2.
+Today, `useInsight()` always returns the honest "no insights yet" empty state — no engine has ever run locally or on the old API (`GET /insights` always returned `[]`). Only the per-transaction `is_impulse` heuristic (night/weekend + above-average amount — see `apps/src/data/impulse.ts`) is real. The real engine is Phase 2.
 
 ## Roadmap Phases
 
@@ -60,16 +60,16 @@ Today, `useInsight()` always returns the honest "no insights yet" empty state �
 
 ## Monorepo Layout
 
-npm workspace: `apps/mobile` (Expo). It has its own `CLAUDE.md` — read it before working in that area.
+npm workspace: `apps` (Expo). It has its own `CLAUDE.md` — read it before working in that area.
 
 ## Local Development (CI, local-first)
 
 There is no server or Docker to run — `npx expo start` (or `npm run mobile`) is the whole dev loop. The CI pipeline mirrors what you run on your machine.
 
 **Local-first CI** — one command reproduces CI exactly:
-- `npm run ci` (root) = `typecheck` + `lint` + `test` + `build` (bundle export, `apps/mobile`) — 125 unit tests today
+- `npm run ci` (root) = `typecheck` + `lint` + `test` + `build` (bundle export, `apps`) — 125 unit tests today
 - `.github/workflows/ci.yml` runs the same on push/PR, Node 22
 - `npm run setup:hooks` enables the versioned `.githooks/pre-push`, which runs `npm run ci` before every push (bypass with `git push --no-verify`)
-- Run the workspace's own scripts directly: `npm run <script> --workspace=apps/mobile`
+- Run the workspace's own scripts directly: `npm run <script> --workspace=apps`
 
 **Always validate before declaring done**: `npm run ci` must pass.

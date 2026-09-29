@@ -1,4 +1,4 @@
-# CLAUDE.md — apps/mobile
+# CLAUDE.md — apps
 
 Frontend mobile React Native + Expo para o Wyden. Recria, pixel-perfect, o
 protótipo em `design_bundle/fintech-wyden/`.

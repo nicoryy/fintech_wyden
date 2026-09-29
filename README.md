@@ -46,7 +46,7 @@ exporta e importa quando quiser.
 ## 📂 Monorepo (npm workspaces)
 
 ```
-apps/mobile      App React Native (Expo), com o banco local embutido → apps/mobile/CLAUDE.md
+apps      App React Native (Expo), com o banco local embutido → apps/CLAUDE.md
 ```
 
 ## ▶️ Rodando local

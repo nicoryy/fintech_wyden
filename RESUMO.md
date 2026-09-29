@@ -34,7 +34,7 @@ da mudança de arquitetura).
 
 ```
 ┌─────────────────────────┐
-│   App Mobile (Expo RN)   │  apps/mobile
+│   App Mobile (Expo RN)   │  apps
 │   React Native + Expo    │
 └───────────┬─────────────┘
             │ chamadas diretas (sem rede)
@@ -62,7 +62,7 @@ dentro do app, rodando sobre SQLite local.
 
 | Pacote | O que é | Por que existe |
 |--------|---------|----------------|
-| `apps/mobile` | App React Native (Expo), com o banco local embutido | A interface que o usuário usa — e agora também onde os dados moram |
+| `apps` | App React Native (Expo), com o banco local embutido | A interface que o usuário usa — e agora também onde os dados moram |
 
 Cada pasta importante tem seu próprio **`CLAUDE.md`** explicando as regras
 daquela área (é a documentação técnica de cada módulo).
@@ -71,7 +71,7 @@ daquela área (é a documentação técnica de cada módulo).
 
 ## 3. Stack tecnológica (e o porquê de cada escolha)
 
-### App (`apps/mobile`)
+### App (`apps`)
 | Tecnologia | Para quê |
 |-----------|----------|
 | **Expo SDK 57 / React Native 0.86** | Framework do app mobile (iOS/Android) |
@@ -114,7 +114,7 @@ fintech_wyden/
 │       ├── src/
 │       │   ├── data/             ← banco local: db, migrations, seeds, catalog,
 │       │   │                        transactions, impulse, reports, profile,
-│       │   │                        goals, backup, errors (ver apps/mobile/CLAUDE.md)
+│       │   │                        goals, backup, errors (ver apps/CLAUDE.md)
 │       │   ├── components/       ← Card, Icon, TabBar, Field, NameForm, charts/
 │       │   ├── context/          ← CatalogContext (sem auth)
 │       │   ├── screens/          ← a UI de cada tela (incl. welcome/, profile/EditNameScreen)
@@ -164,7 +164,7 @@ ou apagar uma transação — hoje não há nem edição/exclusão de transaçã
 então nunca existe esse problema.
 
 > **Schema versionado:** `PRAGMA user_version` controla as migrations
-> (`apps/mobile/src/data/migrations.ts`) — cada versão nova do schema é um
+> (`apps/src/data/migrations.ts`) — cada versão nova do schema é um
 > passo a mais nesse array, aplicado uma vez por banco.
 
 ---
@@ -200,7 +200,7 @@ uma vez (6 e 12 meses) e derivam tudo localmente.
 ### Backup, não mais "banco always-on"
 Sem servidor, não existe uma cópia "de verdade" rodando em outro lugar — o
 backup é um arquivo `.json` que o próprio usuário exporta e guarda onde
-quiser (ver `apps/mobile/CLAUDE.md`, seção Backup). Importar substitui todos
+quiser (ver `apps/CLAUDE.md`, seção Backup). Importar substitui todos
 os dados atomicamente; se o arquivo for inválido ou tiver uma referência
 quebrada, nada é alterado (rollback).
 
@@ -312,8 +312,8 @@ não há nenhuma chamada de rede.
 
 | Onde | Quantos | O que cobrem |
 |------|---------|--------------|
-| `apps/mobile/src/data` | parte dos 125 | Lógica de negócio portada: impulso, migrations, reports, transações, backup — sobre um SQLite real em memória (`sql.js`), não mocks |
-| `apps/mobile/src/services` e `src/screens` | resto dos 125 | Transforms, hooks (React Query sobre o banco de teste), componentes, smoke das telas |
+| `apps/src/data` | parte dos 125 | Lógica de negócio portada: impulso, migrations, reports, transações, backup — sobre um SQLite real em memória (`sql.js`), não mocks |
+| `apps/src/services` e `src/screens` | resto dos 125 | Transforms, hooks (React Query sobre o banco de teste), componentes, smoke das telas |
 
 Estratégia: **SQLite real em memória** (`sql.js`) em vez de mockar o banco —
 os testes de `src/data` exercitam o SQL de verdade (inclusive violação de
@@ -356,5 +356,5 @@ foreign key / rollback no backup), não uma simulação.
 
 ---
 
-*Para detalhes técnicos, veja o `CLAUDE.md` dentro de `apps/mobile` e
-`apps/mobile/app`.*
+*Para detalhes técnicos, veja o `CLAUDE.md` dentro de `apps` e
+`apps/app`.*
