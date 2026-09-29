@@ -1,23 +1,36 @@
 /**
- * Frontend domain types. These mirror the backend entities (the per-module
- * entity files under apps/api) and the enums in `@wyden/shared`, while also
- * carrying the UI-only presentation fields the design needs (category
- * icon/color, bank short/color tiles, grouped-by-day labels).
+ * Frontend domain types. These mirror the local SQLite schema (`src/data`),
+ * while also carrying the UI-only presentation fields the design needs
+ * (category icon/color, bank short/color tiles, grouped-by-day labels).
+ *
+ * The four enums below used to live in the `@wyden/shared` workspace package,
+ * shared with the (now removed) NestJS API — with no API left to share them
+ * with, they're inlined here instead.
  */
-import {
-  TransactionTypeEnum,
-  CategoryTypeEnum,
-  GoalStatusEnum,
-  InsightTypeEnum,
-} from '@wyden/shared';
 import type { IconName } from '../components/Icon';
 
-export {
-  TransactionTypeEnum,
-  CategoryTypeEnum,
-  GoalStatusEnum,
-  InsightTypeEnum,
-};
+export enum TransactionTypeEnum {
+  INCOME = 'income',
+  EXPENSE = 'expense',
+}
+
+export enum CategoryTypeEnum {
+  INCOME = 'income',
+  EXPENSE = 'expense',
+}
+
+export enum GoalStatusEnum {
+  ACTIVE = 'active',
+  COMPLETED = 'completed',
+  PAUSED = 'paused',
+}
+
+export enum InsightTypeEnum {
+  IMPULSIVITY = 'impulsivity',
+  CONSISTENCY = 'consistency',
+  PLANNING = 'planning',
+  EMOTIONAL = 'emotional',
+}
 
 /** Category as consumed by the UI (icon + color come from the seed/design). */
 export interface Category {
@@ -37,8 +50,13 @@ export interface Bank {
   /** ink color for short label when the tile background is light */
   ink?: string;
   cash?: boolean;
-  /** current balance in reais (from the API; absent for static mock banks) */
+  /** current balance in reais, computed from local transactions at read time */
   balance?: number;
+}
+
+/** The single local "identity" — just the name collected by onboarding. */
+export interface Profile {
+  name: string | null;
 }
 
 /** Compact transaction shape used across dashboard / lists. */
@@ -125,10 +143,10 @@ export interface InsightDetail {
   title: string;
   description: string;
   /**
-   * Absent until the behavioral engine (Phase 2) can produce a real
-   * per-weekday breakdown — the backend record has no such data today, so
-   * there is nothing genuine to chart yet. The UI should say that instead
-   * of rendering invented numbers as if they were measurements.
+   * Absent until the behavioral engine (Phase 2) can compute a real
+   * per-weekday breakdown locally — there is nothing genuine to chart yet.
+   * The UI should say that instead of rendering invented numbers as if they
+   * were measurements.
    */
   weeklyPattern?: { day: string; value: number; hot?: boolean }[];
   metrics?: { label: string; value: string; tone: 'orange' | 'purple'; sub: string }[];

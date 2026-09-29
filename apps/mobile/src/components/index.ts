@@ -1,6 +1,8 @@
 export { Icon } from './Icon';
 export type { IconName, IconProps } from './Icon';
 export { Card } from './Card';
+export { Field } from './Field';
+export { NameForm } from './NameForm';
 export { Press } from './Press';
 export { Txt } from './Txt';
 export { ProgressBar } from './ProgressBar';

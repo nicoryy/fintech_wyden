@@ -3,8 +3,9 @@
  * numeric keypad, category ChipRow, BankRow, details, save + success state.
  * Ported from the prototype `add.jsx`. Presented as a modal route.
  *
- * The amount is modeled in integer cents (like the prototype) so the keypad is
- * trivial and rounding-safe; it is divided by 100 only for display & on save.
+ * The amount is modeled in integer cents (like the prototype, and like the
+ * local SQLite schema — see `services/hooks.ts`) so the keypad is trivial and
+ * rounding-safe; it is only divided by 100 for display.
  */
 import React, { useRef, useState } from 'react';
 import {
@@ -23,8 +24,8 @@ import { useCatalog } from '../../context/CatalogContext';
 import { useCreateTransaction } from '../../services/hooks';
 import { TransactionTypeEnum, type Bank, type Category } from '../../services/types';
 import { brl, brlParts } from '../../utils/format';
+import { errorMessage } from '../../utils/errors';
 import { colors, tileShadow, withAlpha } from '../../theme/tokens';
-import { apiErrorMessage } from '../auth/errors';
 
 type TxType = 'despesa' | 'receita';
 
@@ -40,7 +41,7 @@ export function AddTransactionScreen() {
   const [selectedBank, setSelectedBank] = useState<string | null>(null);
   const [desc, setDesc] = useState('');
   const [saved, setSaved] = useState(false);
-  const [apiError, setApiError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const amountRef = useRef<TextInput>(null);
   // Synchronous re-entrancy guard for a fast double-tap: createTx.isPending
   // is only current after React (and React Query's own notifyManager) have
@@ -75,18 +76,18 @@ export function AddTransactionScreen() {
   const save = () => {
     if (!valid || !cat || !bank || submittingRef.current) return;
     submittingRef.current = true;
-    setApiError(null);
+    setSaveError(null);
     createTx.mutate(
       {
         type: income ? TransactionTypeEnum.INCOME : TransactionTypeEnum.EXPENSE,
-        value: cents / 100,
+        amountCents: cents,
         categoryId: cat,
         bankId: bank,
         description: desc.trim() || undefined,
       },
       {
         // The success overlay used to show unconditionally as soon as save()
-        // was pressed, before the request even resolved — a failed POST still
+        // was pressed, before the request even resolved — a failed write still
         // told the user "Despesa registrada!". It now only fires here.
         onSuccess: () => {
           setSaved(true);
@@ -94,7 +95,7 @@ export function AddTransactionScreen() {
         },
         onError: (err) => {
           submittingRef.current = false;
-          setApiError(apiErrorMessage(err, 'Não foi possível salvar. Tente novamente.'));
+          setSaveError(errorMessage(err, 'Não foi possível salvar. Tente novamente.'));
         },
       },
     );
@@ -181,9 +182,9 @@ export function AddTransactionScreen() {
 
       {/* save */}
       <View style={[styles.saveWrap, { paddingBottom: Math.max(insets.bottom, 16) + 14 }]}>
-        {apiError && (
-          <Txt style={styles.apiError} accessibilityRole="alert">
-            {apiError}
+        {saveError && (
+          <Txt style={styles.saveError} accessibilityRole="alert">
+            {saveError}
           </Txt>
         )}
         <Press
@@ -404,7 +405,7 @@ const styles = StyleSheet.create({
   detailInput: { flex: 1, fontSize: 14.5, fontWeight: '600', color: colors.ink, padding: 0, fontFamily: 'PlusJakarta_600SemiBold' },
 
   saveWrap: { paddingHorizontal: 16, paddingTop: 8, backgroundColor: colors.bg },
-  apiError: { fontSize: 13.5, color: colors.orange, marginBottom: 10, fontWeight: '700', textAlign: 'center' },
+  saveError: { fontSize: 13.5, color: colors.orange, marginBottom: 10, fontWeight: '700', textAlign: 'center' },
   saveBtn: { height: 56, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   saveText: { fontSize: 16.5, fontWeight: '800', color: colors.white },
 

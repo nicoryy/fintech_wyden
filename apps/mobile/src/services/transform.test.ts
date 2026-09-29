@@ -16,30 +16,18 @@ import {
   placeholderGoal,
   toSpendSlices,
   toBankSpend,
-  mergeByCategory,
-  mergeByBank,
   toMonthPoints,
   deriveEvolution,
   deriveSaldoDelta,
   monthLabelPt,
   monthNamePt,
   shiftMonth,
-  economiaFromSummary,
   economiaForPeriod,
   deriveBehavior,
   toInsightDetail,
 } from './transform';
-import type {
-  ApiBank,
-  ApiCategory,
-  ApiGoal,
-  ApiInsight,
-  ApiMonthlyComparison,
-  ApiReportByBank,
-  ApiReportByCategory,
-  ApiReportSummary,
-  ApiTransaction,
-} from './api-types';
+import type { BankTotal, CategoryTotal, MonthTotal } from '../data/reports';
+import type { BankRecord, CategoryRecord, GoalRecord, TransactionRecord } from '../data/records';
 import { CategoryTypeEnum, GoalStatusEnum, InsightTypeEnum, TransactionTypeEnum } from './types';
 
 describe('toIconName', () => {
@@ -76,7 +64,7 @@ describe('shortFromName', () => {
 });
 
 describe('toCategory / splitCategories', () => {
-  const cats: ApiCategory[] = [
+  const cats: CategoryRecord[] = [
     { id: 'a', name: 'Compras', type: CategoryTypeEnum.EXPENSE, icon: 'bag', color: '#111111' },
     { id: 'b', name: 'Salário', type: CategoryTypeEnum.INCOME, icon: 'wallet', color: '#222222' },
   ];
@@ -92,18 +80,26 @@ describe('toCategory / splitCategories', () => {
 
 describe('toBank', () => {
   it('derives short from name when null and computes ink/cash', () => {
-    const b: ApiBank = { id: '1', name: 'Dinheiro', short: null, color: '#17A06A', initialBalance: 0, currentBalance: 0 };
+    const b: BankRecord = {
+      id: '1', name: 'Dinheiro', short: null, color: '#17A06A', initialBalanceCents: 0, balanceCents: 0,
+    };
     const out = toBank(b);
     expect(out.short).toBe('Di');
     expect(out.cash).toBe(true);
     expect(out.ink).toBe('#FFFFFF'); // green is not light enough → white ink
   });
+  it('converts cents to reais', () => {
+    const b: BankRecord = {
+      id: '1', name: 'Nubank', short: 'Nu', color: '#8A05BE', initialBalanceCents: 0, balanceCents: 12345,
+    };
+    expect(toBank(b).balance).toBeCloseTo(123.45);
+  });
 });
 
 describe('signedAmount', () => {
   it('negates expenses and keeps income positive', () => {
-    expect(signedAmount(TransactionTypeEnum.EXPENSE, '42.90')).toBeCloseTo(-42.9);
-    expect(signedAmount(TransactionTypeEnum.INCOME, '6250.00')).toBeCloseTo(6250);
+    expect(signedAmount(TransactionTypeEnum.EXPENSE, 42.9)).toBeCloseTo(-42.9);
+    expect(signedAmount(TransactionTypeEnum.INCOME, 6250)).toBeCloseTo(6250);
   });
 });
 
@@ -125,12 +121,19 @@ describe('date labels', () => {
 
 describe('toTransaction / groupByDay', () => {
   const now = new Date(2026, 5, 9, 23, 59);
-  const local = (y: number, m: number, d: number, h: number, mi: number) =>
-    new Date(y, m, d, h, mi).toISOString();
-  const txs: ApiTransaction[] = [
-    { id: 't1', userId: 'u', bankId: 'b', categoryId: 'c', amount: '42.90', type: TransactionTypeEnum.EXPENSE, description: 'iFood', transactionDate: local(2026, 5, 9, 13, 20), isImpulse: true },
-    { id: 't2', userId: 'u', bankId: 'b', categoryId: 'c', amount: '18.50', type: TransactionTypeEnum.EXPENSE, description: 'Uber', transactionDate: local(2026, 5, 9, 9, 5) },
-    { id: 't3', userId: 'u', bankId: 'b', categoryId: 'c', amount: '6250.00', type: TransactionTypeEnum.INCOME, description: 'Salário', transactionDate: local(2026, 5, 8, 8, 0) },
+  const local = (y: number, m: number, d: number, h: number, mi: number) => new Date(y, m, d, h, mi).getTime();
+  const record = (overrides: Partial<TransactionRecord>): TransactionRecord => ({
+    id: 't', bankId: 'b', categoryId: 'c', categoryName: 'Categoria', amountCents: 0,
+    type: TransactionTypeEnum.EXPENSE, description: null, occurredAt: 0, isImpulse: false,
+    ...overrides,
+  });
+  const txs: TransactionRecord[] = [
+    record({ id: 't1', amountCents: 4290, description: 'iFood', occurredAt: local(2026, 5, 9, 13, 20), isImpulse: true }),
+    record({ id: 't2', amountCents: 1850, description: 'Uber', occurredAt: local(2026, 5, 9, 9, 5) }),
+    record({
+      id: 't3', amountCents: 625000, type: TransactionTypeEnum.INCOME, description: 'Salário',
+      occurredAt: local(2026, 5, 8, 8, 0),
+    }),
   ];
 
   it('produces a signed, labeled transaction', () => {
@@ -139,6 +142,11 @@ describe('toTransaction / groupByDay', () => {
     expect(t.time).toBe('13:20');
     expect(t.when).toBe('Hoje, 13:20');
     expect(t.isImpulse).toBe(true);
+  });
+
+  it('falls back to the category name when there is no description', () => {
+    const t = toTransaction(record({ description: null, categoryName: 'Compras', occurredAt: local(2026, 5, 9, 10, 0) }), now);
+    expect(t.description).toBe('Compras');
   });
 
   it('groups by day newest-first with Hoje/Ontem labels', () => {
@@ -150,8 +158,8 @@ describe('toTransaction / groupByDay', () => {
 });
 
 describe('toGoal / placeholderGoal', () => {
-  it('coerces string amounts to numbers', () => {
-    const g: ApiGoal = { id: 'g', title: 'X', targetAmount: '5000', currentAmount: '3000', status: GoalStatusEnum.ACTIVE };
+  it('converts cents to reais', () => {
+    const g: GoalRecord = { id: 'g', title: 'X', targetCents: 500000, currentCents: 300000, deadline: null, status: GoalStatusEnum.ACTIVE };
     expect(toGoal(g)).toMatchObject({ targetAmount: 5000, currentAmount: 3000 });
   });
   it('placeholder is a zeroed active goal', () => {
@@ -160,96 +168,34 @@ describe('toGoal / placeholderGoal', () => {
 });
 
 describe('reports transforms', () => {
-  it('toSpendSlices maps total→value', () => {
-    const list: ApiReportByCategory[] = [{ categoryId: 'c', name: 'C', icon: 'bag', color: '#000', total: 100, pct: 50 }];
+  it('toSpendSlices converts totalCents to reais and keeps pct', () => {
+    const list: CategoryTotal[] = [{ categoryId: 'c', totalCents: 10000, pct: 50 }];
     expect(toSpendSlices(list)).toEqual([{ categoryId: 'c', value: 100, pct: 50 }]);
   });
-  it('toBankSpend maps total→value', () => {
-    const list: ApiReportByBank[] = [{ bankId: 'b', name: 'B', total: 200 }];
+  it('toBankSpend converts totalCents to reais', () => {
+    const list: BankTotal[] = [{ bankId: 'b', totalCents: 20000 }];
     expect(toBankSpend(list)).toEqual([{ bankId: 'b', value: 200 }]);
   });
-  it('toMonthPoints uses abbreviated pt-BR month names', () => {
-    const list: ApiMonthlyComparison[] = [{ month: '2026-01', receitas: 10, despesas: 5 }];
+  it('toMonthPoints uses abbreviated pt-BR month names and converts cents to reais', () => {
+    const list: MonthTotal[] = [{ month: '2026-01', receitasCents: 1000, despesasCents: 500 }];
     expect(toMonthPoints(list)).toEqual([{ m: 'Jan', rec: 10, desp: 5 }]);
-  });
-
-  describe('mergeByCategory', () => {
-    const page = (total: number, pct: number): ApiReportByCategory[] => [
-      { categoryId: 'c', name: 'C', icon: 'bag', color: '#000', total, pct },
-    ];
-
-    it('returns a single page untouched — its pct already reflects the backend grand total', () => {
-      const single = page(100, 37); // 37% of a real month total this fixture doesn't show
-      expect(mergeByCategory([single])).toBe(single);
-    });
-
-    it('returns an empty array when given no pages at all', () => {
-      expect(mergeByCategory([])).toEqual([]);
-    });
-
-    it('sums totals across months and recomputes pct against the merged grand total', () => {
-      const jan: ApiReportByCategory[] = [
-        { categoryId: 'food', name: 'Alimentação', icon: 'food', color: '#F00', total: 300, pct: 60 },
-        { categoryId: 'shop', name: 'Compras', icon: 'bag', color: '#0F0', total: 200, pct: 40 },
-      ];
-      const feb: ApiReportByCategory[] = [
-        { categoryId: 'food', name: 'Alimentação', icon: 'food', color: '#F00', total: 100, pct: 100 },
-      ];
-
-      const merged = mergeByCategory([jan, feb]);
-
-      // food: 300+100=400, shop: 200 -> grand total 600.
-      expect(merged).toEqual([
-        expect.objectContaining({ categoryId: 'food', total: 400, pct: expect.closeTo(66.67, 1) }),
-        expect.objectContaining({ categoryId: 'shop', total: 200, pct: expect.closeTo(33.33, 1) }),
-      ]);
-    });
-
-    it('sorts the merged result by total descending', () => {
-      const a: ApiReportByCategory[] = [
-        { categoryId: 'x', name: 'X', icon: 'bag', color: '#000', total: 10, pct: 100 },
-      ];
-      const b: ApiReportByCategory[] = [
-        { categoryId: 'y', name: 'Y', icon: 'bag', color: '#000', total: 90, pct: 100 },
-      ];
-      expect(mergeByCategory([a, b]).map((i) => i.categoryId)).toEqual(['y', 'x']);
-    });
-  });
-
-  describe('mergeByBank', () => {
-    it('sums totals per bank across pages and sorts descending', () => {
-      const jan: ApiReportByBank[] = [
-        { bankId: 'nu', name: 'Nubank', total: 100 },
-        { bankId: 'bb', name: 'BB', total: 50 },
-      ];
-      const feb: ApiReportByBank[] = [{ bankId: 'nu', name: 'Nubank', total: 20 }];
-
-      expect(mergeByBank([jan, feb])).toEqual([
-        { bankId: 'nu', name: 'Nubank', total: 120 },
-        { bankId: 'bb', name: 'BB', total: 50 },
-      ]);
-    });
-
-    it('returns an empty array when given no pages', () => {
-      expect(mergeByBank([])).toEqual([]);
-    });
   });
 });
 
 describe('deriveEvolution', () => {
   it('normalizes cumulative net worth to 0..1', () => {
-    const list: ApiMonthlyComparison[] = [
-      { month: '2026-01', receitas: 100, despesas: 50 }, // +50 cumulative 50
-      { month: '2026-02', receitas: 100, despesas: 0 },  // +100 cumulative 150
+    const list: MonthTotal[] = [
+      { month: '2026-01', receitasCents: 10000, despesasCents: 5000 }, // +5000 cumulative 5000
+      { month: '2026-02', receitasCents: 10000, despesasCents: 0 }, // +10000 cumulative 15000
     ];
     const e = deriveEvolution(list);
     expect(e[0]).toBeCloseTo(0);
     expect(e[1]).toBeCloseTo(1);
   });
   it('handles a flat series', () => {
-    const list: ApiMonthlyComparison[] = [
-      { month: '2026-01', receitas: 0, despesas: 0 },
-      { month: '2026-02', receitas: 0, despesas: 0 },
+    const list: MonthTotal[] = [
+      { month: '2026-01', receitasCents: 0, despesasCents: 0 },
+      { month: '2026-02', receitasCents: 0, despesasCents: 0 },
     ];
     expect(deriveEvolution(list)).toEqual([0.5, 0.5]);
   });
@@ -260,19 +206,19 @@ describe('deriveEvolution', () => {
 
 describe('deriveSaldoDelta', () => {
   it('returns null for an all-zero (new account) series', () => {
-    const list: ApiMonthlyComparison[] = [
-      { month: '2026-05', receitas: 0, despesas: 0 },
-      { month: '2026-06', receitas: 0, despesas: 0 },
+    const list: MonthTotal[] = [
+      { month: '2026-05', receitasCents: 0, despesasCents: 0 },
+      { month: '2026-06', receitasCents: 0, despesasCents: 0 },
     ];
     expect(deriveSaldoDelta(list)).toBeNull();
   });
   it('returns null when there is only one month', () => {
-    expect(deriveSaldoDelta([{ month: '2026-06', receitas: 100, despesas: 0 }])).toBeNull();
+    expect(deriveSaldoDelta([{ month: '2026-06', receitasCents: 10000, despesasCents: 0 }])).toBeNull();
   });
-  it('computes the change in monthly net vs the previous month', () => {
-    const list: ApiMonthlyComparison[] = [
-      { month: '2026-05', receitas: 1000, despesas: 400 }, // net 600
-      { month: '2026-06', receitas: 1200, despesas: 300 }, // net 900
+  it('computes the change in monthly net vs the previous month, in reais', () => {
+    const list: MonthTotal[] = [
+      { month: '2026-05', receitasCents: 100000, despesasCents: 40000 }, // net 600
+      { month: '2026-06', receitasCents: 120000, despesasCents: 30000 }, // net 900
     ];
     expect(deriveSaldoDelta(list)).toBeCloseTo(300);
   });
@@ -293,22 +239,11 @@ describe('month helpers', () => {
   });
 });
 
-describe('economiaFromSummary', () => {
-  it('computes saved percentage of income', () => {
-    const s: ApiReportSummary = { receitas: 6250, despesas: 1899.8, saldo: 4350.2, economia: 4350.2 };
-    expect(economiaFromSummary(s)).toEqual({ value: 4350.2, pct: 70 });
-  });
-  it('is 0% when there is no income', () => {
-    const s: ApiReportSummary = { receitas: 0, despesas: 0, saldo: 0, economia: 0 };
-    expect(economiaFromSummary(s).pct).toBe(0);
-  });
-});
-
 describe('economiaForPeriod', () => {
-  const list: ApiMonthlyComparison[] = [
-    { month: '2026-04', receitas: 1000, despesas: 600 },
-    { month: '2026-05', receitas: 1000, despesas: 400 },
-    { month: '2026-06', receitas: 1000, despesas: 200 }, // net 800
+  const list: MonthTotal[] = [
+    { month: '2026-04', receitasCents: 100000, despesasCents: 60000 },
+    { month: '2026-05', receitasCents: 100000, despesasCents: 40000 },
+    { month: '2026-06', receitasCents: 100000, despesasCents: 20000 }, // net 800
   ];
   it('aggregates only the last month (Mês)', () => {
     expect(economiaForPeriod(list, 1)).toEqual({ value: 800, pct: 80 });
@@ -319,15 +254,14 @@ describe('economiaForPeriod', () => {
   });
   it('clamps the window to the available months and is 0% with no income', () => {
     expect(economiaForPeriod(list, 12).value).toBe(1800);
-    expect(economiaForPeriod([{ month: '2026-06', receitas: 0, despesas: 0 }], 1)).toEqual({ value: 0, pct: 0 });
+    expect(economiaForPeriod([{ month: '2026-06', receitasCents: 0, despesasCents: 0 }], 1)).toEqual({ value: 0, pct: 0 });
   });
 });
 
 describe('deriveBehavior', () => {
-  const expense = (impulse: boolean): ApiTransaction => ({
-    id: Math.random().toString(), userId: 'u', bankId: 'b', categoryId: 'c',
-    amount: '10', type: TransactionTypeEnum.EXPENSE, transactionDate: new Date().toISOString(),
-    isImpulse: impulse,
+  const expense = (impulse: boolean): TransactionRecord => ({
+    id: Math.random().toString(), bankId: 'b', categoryId: 'c', categoryName: 'Categoria', amountCents: 1000,
+    type: TransactionTypeEnum.EXPENSE, description: null, occurredAt: Date.now(), isImpulse: impulse,
   });
 
   it('returns placeholders when a month has no expenses', () => {
@@ -351,11 +285,9 @@ describe('toInsightDetail', () => {
   });
 
   it('maps the first insight onto the detail shape, without a fabricated weeklyPattern or peak-hour metric', () => {
-    const list: ApiInsight[] = [{ id: 'i', type: InsightTypeEnum.IMPULSIVITY, score: 72, title: 'Gasto por impulso', description: 'desc' }];
-    const out = toInsightDetail(list);
+    const out = toInsightDetail([{ type: InsightTypeEnum.IMPULSIVITY, score: 72, title: 'Gasto por impulso', description: 'desc' }]);
     expect(out.title).toBe('Gasto por impulso');
-    // Only the score-derived metric — the invented "Horário de pico: 21h–23h"
-    // is gone, and so is the invented weeklyPattern (regression coverage).
+    // Only the score-derived metric — no invented "Horário de pico" or weeklyPattern.
     expect(out.metrics).toEqual([
       { label: 'Índice de impulso', value: 'Alto', tone: 'orange', sub: 'score 72' },
     ]);

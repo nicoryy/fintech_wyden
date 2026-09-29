@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   validate:
-    name: Typecheck · Lint · Test · Build
+    name: Typecheck · Lint · Test · Bundle
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,28 +29,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Typecheck (api + mobile)
+      - name: Typecheck (mobile)
         run: npm run typecheck
 
-      - name: Lint (api + mobile)
+      - name: Lint (mobile)
         run: npm run lint
 
-      - name: Test (api + mobile)
+      - name: Test (mobile)
         run: npm test
 
-      - name: Build (api)
+      - name: Bundle (android)
         run: npm run build
-
-  docker:
-    name: Build API image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Build API Docker image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: apps/api/Dockerfile
-          push: false
-          tags: wyden-api:ci

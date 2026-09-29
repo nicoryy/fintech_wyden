@@ -1,11 +1,10 @@
 # 📘 RESUMO — Wyden (o "livro" do projeto)
 
 > Documento único para entender **tudo** que existe neste projeto: o que é cada
-> coisa, **por que** ela existe, como se conectam, e **quais chaves/credenciais**
-> usar para acessar cada serviço. Escrito para quem chega no projeto e quer o
-> mapa completo sem ter que ler todo o código.
+> coisa, **por que** ela existe, e como se conecta. Escrito para quem chega no
+> projeto e quer o mapa completo sem ter que ler todo o código.
 
-Última atualização: 2026-06-09.
+Última atualização: 2026-09-28.
 
 ---
 
@@ -24,6 +23,11 @@ a partir das transações do usuário.
 A cor **roxa (#7C5CFC)** é reservada exclusivamente para a parte de insight
 comportamental — é a "marca" visual do diferencial do produto.
 
+**É um app pessoal, de um único usuário, 100% local.** Não existe servidor,
+não existe login, não existe nuvem — todos os dados ficam num banco SQLite no
+próprio aparelho (ver §2 e a issue #1 no histórico do repositório para o porquê
+da mudança de arquitetura).
+
 ---
 
 ## 2. Visão geral da arquitetura
@@ -33,27 +37,32 @@ comportamental — é a "marca" visual do diferencial do produto.
 │   App Mobile (Expo RN)   │  apps/mobile
 │   React Native + Expo    │
 └───────────┬─────────────┘
-            │ HTTP REST (JSON) + JWT
+            │ chamadas diretas (sem rede)
             ▼
 ┌─────────────────────────┐
-│   API REST (NestJS)      │  apps/api
-│   Regras de negócio      │
-│   + Engine de Insights   │
+│   src/data (regras +     │
+│   queries)                │
 └───────────┬─────────────┘
-            │ TypeORM
+            │
             ▼
 ┌─────────────────────────┐
-│  PostgreSQL  +  Redis    │  (Docker)
+│  SQLite (expo-sqlite)    │  no aparelho do usuário
 └─────────────────────────┘
 ```
 
-É um **monorepo** (npm workspaces) com 3 pacotes:
+Um app anterior rodava `apps/api` (NestJS) + PostgreSQL + Redis num
+`docker-compose`, com login por JWT. Isso foi removido: para um app pessoal,
+de um único usuário, manter um servidor sempre ligado (com portas, credenciais
+e imagem para manter) era complexidade sem propósito — e dados bancários não
+deveriam estar na nuvem de qualquer forma. A camada de negócio (saldo,
+detecção de impulso, agregações de relatório, seeds) foi **portada** para
+dentro do app, rodando sobre SQLite local.
+
+É um **monorepo** (npm workspaces) com 1 pacote:
 
 | Pacote | O que é | Por que existe |
 |--------|---------|----------------|
-| `apps/mobile` | App React Native (Expo) | A interface que o usuário usa |
-| `apps/api` | Backend NestJS | Regras de negócio, dados, autenticação |
-| `packages/shared` | Tipos TypeScript compartilhados | Evitar duplicar enums/tipos entre front e back |
+| `apps/mobile` | App React Native (Expo), com o banco local embutido | A interface que o usuário usa — e agora também onde os dados moram |
 
 Cada pasta importante tem seu próprio **`CLAUDE.md`** explicando as regras
 daquela área (é a documentação técnica de cada módulo).
@@ -62,37 +71,26 @@ daquela área (é a documentação técnica de cada módulo).
 
 ## 3. Stack tecnológica (e o porquê de cada escolha)
 
-### Frontend (`apps/mobile`)
+### App (`apps/mobile`)
 | Tecnologia | Para quê |
 |-----------|----------|
-| **Expo SDK 56 / React Native 0.85** | Framework do app mobile (iOS/Android) |
+| **Expo SDK 57 / React Native 0.86** | Framework do app mobile (iOS/Android) |
 | **TypeScript (strict)** | Tipagem forte, menos bugs |
 | **Expo Router** | Navegação por arquivos (`app/`) |
-| **React Query** | Busca/cache de dados da API |
-| **React Hook Form + Zod** | Formulários (login/registro) com validação |
+| **React Query** | Cache/estado das leituras do banco local (não mais de uma API) |
+| **React Hook Form + Zod** | Formulários (onboarding de nome, adicionar transação) com validação |
 | **react-native-svg** | Ícones e gráficos (sparkline, donut, anel) |
 | **Plus Jakarta Sans** | Fonte do design |
-| **expo-secure-store** | Guardar os tokens JWT com segurança |
+| **expo-sqlite** | Banco de dados local — substitui Postgres + a API inteira |
+| **expo-crypto** | Gera os ids (`randomUUID`) das linhas criadas localmente |
+| **expo-file-system / expo-sharing / expo-document-picker** | Export/import do backup `.json` |
 | **NativeWind** | Configurado, mas a UI usa StyleSheet/inline para fidelidade pixel-perfect |
 
-### Backend (`apps/api`)
+### Testes
 | Tecnologia | Para quê |
 |-----------|----------|
-| **NestJS 11** | Framework backend (módulos, injeção de dependência) |
-| **TypeORM + PostgreSQL** | ORM + banco relacional |
-| **JWT (access + refresh)** | Autenticação stateless |
-| **bcrypt** | Hash de senhas |
-| **class-validator / class-transformer** | Validação de DTOs e serialização |
-| **@nestjs/throttler** | Rate limiting |
-
-### Infra
-| Tecnologia | Para quê |
-|-----------|----------|
-| **Docker + docker-compose** | Subir todo o ambiente local |
-| **PostgreSQL 16** | Banco de dados principal |
-| **Redis 7** | Cache (preparado; ainda não usado em runtime) |
-| **pgAdmin** | UI web para inspecionar o banco |
-| **GitHub Actions** | CI (lint, testes, build, build da imagem) |
+| **jest-expo + @testing-library/react-native** | Testes de componentes/hooks |
+| **sql.js** | SQLite real (compilado para asm.js) rodando em memória nos testes — sem mocks de banco, sem módulo nativo |
 
 ---
 
@@ -101,28 +99,11 @@ daquela área (é a documentação técnica de cada módulo).
 ```
 fintech_wyden/
 ├── apps/
-│   ├── api/                      ← Backend NestJS
-│   │   ├── src/
-│   │   │   ├── modules/          ← um módulo por domínio (ver §6)
-│   │   │   │   ├── auth/         ← login, refresh, /me, guards, strategies
-│   │   │   │   ├── users/        ← cadastro de usuários (+ seed de bancos)
-│   │   │   │   ├── banks/        ← contas bancárias
-│   │   │   │   ├── categories/   ← categorias (+ seed das 15 padrão)
-│   │   │   │   ├── transactions/ ← transações (+ detecção de impulso)
-│   │   │   │   ├── reports/      ← agregações (dashboard, gráficos)
-│   │   │   │   ├── insights/     ← análise comportamental (stub Fase 2)
-│   │   │   │   └── goals/        ← metas financeiras
-│   │   │   ├── common/           ← decorators, filtros, interceptors, tipos
-│   │   │   ├── database/         ← config TypeORM
-│   │   │   └── main.ts           ← bootstrap (prefixo /api/v1, CORS, pipes)
-│   │   ├── Dockerfile            ← imagem da API (multi-stage)
-│   │   └── CLAUDE.md             ← regras do backend
-│   │
-│   └── mobile/                   ← App React Native
+│   └── mobile/                   ← App React Native (e o banco local)
 │       ├── app/                  ← rotas (Expo Router)
-│       │   ├── _layout.tsx       ← providers + guard de rotas
-│       │   ├── login.tsx         ← tela de login
-│       │   ├── register.tsx      ← tela de cadastro
+│       │   ├── _layout.tsx       ← providers + guard de onboarding
+│       │   ├── welcome.tsx       ← onboarding (só o nome, sem login)
+│       │   ├── edit-name.tsx     ← editar nome (modal)
 │       │   ├── (tabs)/           ← navegação por abas
 │       │   │   ├── index.tsx     ← Dashboard/Início
 │       │   │   ├── transactions.tsx
@@ -131,18 +112,20 @@ fintech_wyden/
 │       │   ├── transaction/add.tsx  ← adicionar transação (modal)
 │       │   └── insight.tsx       ← detalhe do insight (bottom sheet)
 │       ├── src/
-│       │   ├── components/       ← Card, Icon, TabBar, charts/
-│       │   ├── context/          ← AuthContext, CatalogContext
-│       │   ├── screens/          ← a UI de cada tela
-│       │   ├── services/         ← api.ts, hooks.ts, transform.ts, auth.ts
+│       │   ├── data/             ← banco local: db, migrations, seeds, catalog,
+│       │   │                        transactions, impulse, reports, profile,
+│       │   │                        goals, backup, errors (ver apps/mobile/CLAUDE.md)
+│       │   ├── components/       ← Card, Icon, TabBar, Field, NameForm, charts/
+│       │   ├── context/          ← CatalogContext (sem auth)
+│       │   ├── screens/          ← a UI de cada tela (incl. welcome/, profile/EditNameScreen)
+│       │   ├── services/         ← hooks.ts, transform.ts, backup-file.ts, types.ts
+│       │   ├── test-utils/       ← providers, test-db (sql.js), fixtures
 │       │   ├── theme/            ← tokens de cor/fonte
-│       │   └── utils/            ← formatação (R$), geometria dos gráficos
-│       └── CLAUDE.md             ← regras do frontend
+│       │   └── utils/            ← formatação (R$), geometria dos gráficos, meses, erros
+│       └── CLAUDE.md             ← regras do app
 │
-├── packages/shared/             ← tipos/enums compartilhados (@wyden/shared)
 ├── design_bundle/               ← protótipo original do Claude Design (referência)
-├── docker-compose.yml           ← stack: postgres, redis, api, pgadmin
-├── .github/workflows/ci.yml     ← pipeline de CI
+├── .github/workflows/ci.yml     ← pipeline de CI (typecheck/lint/test/bundle)
 ├── .githooks/pre-push           ← roda o CI antes de cada push
 ├── CLAUDE.md                    ← guia geral do repositório
 └── RESUMO.md                    ← este documento
@@ -152,73 +135,74 @@ fintech_wyden/
 
 ## 5. Banco de dados (tabelas e por que existem)
 
-Todas as chaves primárias são **UUID**. Tudo é isolado por `user_id`
-(cada usuário só vê os próprios dados).
+Todas as chaves primárias são **UUID** (geradas com `expo-crypto`), exceto os
+ids de seed (categorias/bancos padrão), que são slugs fixos (`compras`,
+`nubank`, …). **Não há `user_id` em nenhuma tabela** — é um único usuário por
+aparelho. Valores monetários em **centavos** (inteiro); datas em **epoch ms**.
 
 | Tabela | Para que serve | Campos principais |
 |--------|----------------|-------------------|
-| **users** | Quem usa o app | id, name, email, **password_hash**, created_at, updated_at |
-| **banks** | Contas/carteiras do usuário | id, user_id, name, **short**, **color**, initial_balance, current_balance |
-| **categories** | Tipos de gasto/receita | id, name, type (income/expense), icon, color |
-| **transactions** | Cada receita/despesa | id, user_id, bank_id, category_id, amount, type, description, transaction_date, **is_impulse** |
-| **insights** | Análises comportamentais geradas | id, user_id, type, score, title, description, generated_at |
-| **goals** | Metas financeiras | id, user_id, title, target_amount, current_amount, deadline, status |
+| **settings** | Só o nome do usuário (a "conta" inteira) | key, value |
+| **categories** | Tipos de gasto/receita (globais, seedadas) | id, name, type (income/expense), icon, color |
+| **banks** | Contas/carteiras do usuário | id, name, **short**, **color**, initial_balance_cents |
+| **transactions** | Cada receita/despesa | id, bank_id, category_id, amount_cents, type, description, occurred_at, **is_impulse** |
+| **goals** | Metas financeiras (leitura; sem tela de criação ainda) | id, title, target_cents, current_cents, deadline, status |
+
+Não existe tabela `insights` — nada nunca gerou insights de verdade (nem a
+antiga API), então não há nada real para persistir ainda (ver §6).
 
 **Por que `short`/`color` no banco?** O app desenha "tiles" coloridos para cada
 conta (Nubank roxo, Itaú laranja…). Esses campos guardam o visual de cada conta.
 
 **Por que `is_impulse` na transação?** É a base da análise comportamental — marca
-compras feitas por impulso (ver regra em §6).
+compras feitas por impulso (ver regra abaixo).
 
-> **Schema automático:** em desenvolvimento/Docker o TypeORM cria as tabelas
-> sozinho (`synchronize`). Em produção real, o correto é usar *migrations*.
+**Por que o saldo do banco não é uma coluna?** É calculado **na leitura**
+(`initial_balance_cents + Σreceitas − Σdespesas`), o que elimina toda a lógica
+de "revertVersão antiga/aplicar de novo" que a API antiga precisava ao editar
+ou apagar uma transação — hoje não há nem edição/exclusão de transação na UI,
+então nunca existe esse problema.
+
+> **Schema versionado:** `PRAGMA user_version` controla as migrations
+> (`apps/mobile/src/data/migrations.ts`) — cada versão nova do schema é um
+> passo a mais nesse array, aplicado uma vez por banco.
 
 ---
 
-## 6. Backend — módulos, endpoints e regras de negócio
+## 6. Regras de negócio (portadas da antiga API para `src/data`)
 
-Prefixo de todas as rotas: **`/api/v1`**. Tudo (exceto login e cadastro) exige
-o header `Authorization: Bearer <access_token>`.
-
-### Endpoints
-
-| Método | Rota | O que faz | Auth? |
-|--------|------|-----------|-------|
-| POST | `/users/register` | Cria usuário **e seeda 6 bancos padrão** | ❌ |
-| POST | `/auth/login` | Retorna `access_token` + `refresh_token` + user | ❌ |
-| POST | `/auth/refresh` | Novo access token a partir do refresh | ❌ |
-| GET | `/auth/me` | Perfil do usuário logado | ✅ |
-| GET/POST/PATCH/DELETE | `/banks` | CRUD de contas | ✅ |
-| GET/POST/DELETE | `/categories` | Categorias (+ `POST /categories/seed`) | ✅ |
-| GET/POST/PATCH/DELETE | `/transactions` | CRUD de transações (GET aceita filtros) | ✅ |
-| GET | `/reports/summary` | Receitas/despesas/saldo/economia do mês | ✅ |
-| GET | `/reports/by-category` | Gastos por categoria (com %) | ✅ |
-| GET | `/reports/by-bank` | Gastos por banco | ✅ |
-| GET | `/reports/monthly-comparison` | Receitas × despesas dos últimos N meses | ✅ |
-| GET/POST/PATCH/DELETE | `/goals` | Metas | ✅ |
-| GET | `/insights` | Insights comportamentais | ✅ |
-
-### Regras de negócio importantes
-
-**Seed automático no cadastro:** ao registrar, o usuário já ganha:
+### Seed automático na primeira abertura
+Assim que o banco é criado, ele já ganha:
 - **15 categorias padrão** (Alimentação, Delivery, Transporte, Salário…)
 - **6 contas bancárias** (Nubank, Banco do Brasil, Caixa, Itaú, Inter, Dinheiro)
 
 Assim o app é utilizável imediatamente, sem o usuário ter que cadastrar tudo.
+Os ids são fixos (`compras`, `nubank`, …), então um backup importado sempre
+casa com as mesmas linhas.
 
-**Saldo do banco:** toda transação ajusta o `current_balance` da conta
-(receita soma, despesa subtrai). Editar ou apagar uma transação reverte o efeito
-antigo e aplica o novo corretamente.
-
-**Detecção de impulso (`is_impulse`):** uma despesa é marcada como impulsiva
-quando **todas** as condições valem:
+### Detecção de impulso (`is_impulse`)
+Em `src/data/impulse.ts`. Uma despesa é marcada como impulsiva quando **todas**
+as condições valem:
 1. é uma **despesa**;
-2. acontece **à noite (≥ 20h)** OU **no fim de semana**;
-3. o valor é **acima da média de gastos** do usuário nos últimos 7 dias
+2. acontece **à noite (≥ 20h)** OU **no fim de semana**, no horário **local do
+   aparelho** (a versão da API usava um offset fixo de UTC-3; sem servidor
+   separado, "local" agora é só o aparelho do usuário);
+3. o valor é **acima da média de despesas** do usuário nos últimos 7 dias
    (se não há histórico, usa o limite fixo de R$ 100).
 
-**Senha nunca vaza:** o `password_hash` é marcado com `@Exclude()` e nunca
-aparece nas respostas da API.
+### Relatórios (`src/data/reports.ts`)
+Agregações em memória sobre as transações já carregadas (`summarize`,
+`totalsByCategory`, `totalsByBank`, `monthlyComparison`) — a mesma lógica que
+a antiga `ReportsService` fazia contra o Postgres, agora sem round-trip de
+rede: os hooks (`useDashboard`/`useReports`) leem uma janela de transações de
+uma vez (6 e 12 meses) e derivam tudo localmente.
+
+### Backup, não mais "banco always-on"
+Sem servidor, não existe uma cópia "de verdade" rodando em outro lugar — o
+backup é um arquivo `.json` que o próprio usuário exporta e guarda onde
+quiser (ver `apps/mobile/CLAUDE.md`, seção Backup). Importar substitui todos
+os dados atomicamente; se o arquivo for inválido ou tiver uma referência
+quebrada, nada é alterado (rollback).
 
 ---
 
@@ -227,216 +211,131 @@ aparece nas respostas da API.
 ### Telas
 | Tela | Arquivo | O que mostra |
 |------|---------|--------------|
-| **Login / Registro** | `app/login.tsx`, `app/register.tsx` | Autenticação (entrada no app) |
+| **Onboarding** | `app/welcome.tsx` | Só um campo: "Como podemos te chamar?" — sem conta, sem senha |
 | **Início (Dashboard)** | `(tabs)/index.tsx` | Saldo, gráfico de evolução, insight, gastos por categoria, meta, atividade recente |
 | **Transações** | `(tabs)/transactions.tsx` | Lista agrupada por dia, filtros (todas/receitas/despesas/impulso) |
 | **Relatórios** | `(tabs)/reports.tsx` | Economia, comparativo mensal, gastos por categoria/banco, leitura comportamental |
 | **Adicionar** | `transaction/add.tsx` | Teclado numérico, categoria, banco — cria a transação |
-| **Perfil** | `(tabs)/profile.tsx` | Dados do usuário + botão "Sair" |
+| **Perfil** | `(tabs)/profile.tsx` | Nome local, contas, exportar/importar backup, apagar todos os dados |
+| **Editar nome** | `app/edit-name.tsx` | Reabre o mesmo formulário do onboarding |
 | **Insight** | `insight.tsx` | Detalhe do gasto por impulso (bottom sheet) |
 
 ### Como os dados chegam na tela
 1. A tela usa um **hook** (`useDashboard`, `useTransactions`, etc.) do
    `src/services/hooks.ts`.
-2. O hook chama a **API real** via `api` (axios) — `src/services/api.ts`.
-3. A resposta crua passa pelos **transforms puros** (`src/services/transform.ts`)
-   que convertem o formato da API no formato que o design espera.
+2. O hook chama **`src/data/*`** diretamente — sem rede, sem servidor.
+3. O resultado passa pelos **transforms puros** (`src/services/transform.ts`)
+   que convertem os registros do banco (centavos, epoch ms) no formato que o
+   design espera (reais, labels formatados).
 
 **Dados "derivados" (honestidade técnica):** alguns elementos visuais do design
-ainda não têm fonte direta na API e são **calculados de forma simples** a partir
-do que existe (documentado para a Fase 2 refinar):
+ainda não têm uma fonte real e são **calculados de forma simples** a partir do
+que existe (documentado para a Fase 2 refinar):
 - **Gráfico de evolução (sparkline):** derivado do saldo acumulado dos últimos meses.
 - **Leitura comportamental (Relatórios):** heurística simples de % de impulso.
-- **Detalhe de insight (padrão semanal/dica):** placeholders visuais até a engine da Fase 2.
+- **Detalhe de insight:** sempre o estado "sem insights ainda" — não existe
+  engine local (nem existia de verdade na API antiga: `GET /insights` sempre
+  voltava `[]`).
 - **Meta:** usa a primeira meta cadastrada, ou um placeholder zerado.
 
 ### Catálogo (categorias e bancos)
-O `CatalogContext` carrega categorias e bancos da API **uma vez** e as telas
-resolvem ícone/cor/nome por id. Isso evita refazer essas chamadas em cada tela.
+O `CatalogContext` carrega categorias e bancos do banco local **uma vez** e as
+telas resolvem ícone/cor/nome por id. Não há mais nenhum gate de sessão — as
+queries sempre rodam.
 
 ---
 
-## 8. Autenticação e segurança (o fluxo completo)
+## 8. Privacidade (sem autenticação)
 
 ```
-Registro/Login → API devolve access_token (7 dias) + refresh_token (30 dias)
+Primeira abertura → tela única pedindo um nome
    │
-   ├─ tokens salvos no expo-secure-store (armazenamento seguro do device)
+   ├─ nome salvo em settings.profile.name (SQLite local)
    │
-   ├─ toda request leva "Authorization: Bearer <access_token>"
-   │
-   └─ se a API responde 401 (token expirou):
-        → o app tenta UMA vez POST /auth/refresh com o refresh_token
-        → se der certo, repete a request original
-        → se falhar, limpa os tokens e volta para a tela de login
+   └─ guard de rotas (app/_layout.tsx): sem nome → /welcome; com nome → abas
 ```
 
-- O **AuthContext** controla o estado da sessão (`loading` / `authed` / `guest`)
-  e o **guard de rotas** redireciona: sem sessão → `/login`; com sessão → abas.
-- As senhas são guardadas no banco apenas como **hash bcrypt**.
+- **Não existe conta, senha, e-mail, token ou sessão.** Não há nada para
+  vazar num servidor porque não há servidor.
+- Os dados nunca saem do aparelho a menos que o próprio usuário exporte um
+  backup e o compartilhe.
+- `android.allowBackup: false` no `app.json` evita que o Auto Backup do
+  Google suba o banco para a nuvem da conta do usuário sem ele pedir.
+- Sem criptografia adicional do arquivo do banco (SQLCipher) por ora — confia
+  no isolamento de sandbox do sistema operacional.
 
 ---
 
-## 9. 🔑 Chaves, credenciais e portas (acesso a tudo)
-
-> ⚠️ Estas são credenciais de **desenvolvimento local**. Em produção, **troque
-> todos os segredos** (especialmente os JWT) e nunca os comite.
-
-### Banco de dados (PostgreSQL)
-| Item | Valor |
-|------|-------|
-| Host (local) | `localhost` |
-| Host (dentro do Docker) | `postgres` |
-| Porta | `5432` |
-| Database | `wyden_db` |
-| Usuário | `wyden` |
-| Senha | `wyden_secret` |
-
-### Redis
-| Item | Valor |
-|------|-------|
-| Host | `localhost` (ou `redis` no Docker) · Porta `6379` |
-
-### pgAdmin (UI web do banco) — `http://localhost:5050`
-| Item | Valor |
-|------|-------|
-| E-mail | `admin@wyden.com` |
-| Senha | `admin` |
-| Para conectar ao banco lá dentro | host `postgres`, porta `5432`, user `wyden`, senha `wyden_secret` |
-
-### API (NestJS) — `http://localhost:3000`
-| Item | Valor |
-|------|-------|
-| Base URL | `http://localhost:3000/api/v1` |
-| Porta | `3000` |
-| `JWT_SECRET` | `change-this-secret-in-production` |
-| `JWT_EXPIRES_IN` | `7d` (validade do access token) |
-| `JWT_REFRESH_SECRET` | `change-this-refresh-secret-in-production` |
-| `JWT_REFRESH_EXPIRES_IN` | `30d` (validade do refresh token) |
-
-Essas variáveis ficam em `apps/api/.env` (local) e no bloco `environment` do
-serviço `api` no `docker-compose.yml` (container).
-
-### App mobile → API
-- Default: `http://localhost:3000/api/v1`.
-- **Emulador Android:** `localhost` aponta para o próprio emulador. Use
-  `EXPO_PUBLIC_API_URL=http://10.0.2.2:3000/api/v1` para alcançar a API na máquina.
-- iOS simulator pode usar `localhost`.
-
-### Git
-| Item | Valor |
-|------|-------|
-| Autor | Pedro Nicory · `pedronicory@gmail.com` |
-| Branch principal de trabalho | `master` |
-
----
-
-## 10. Docker e infraestrutura
-
-`docker-compose.yml` sobe 4 serviços numa rede interna (`wyden-network`):
-
-| Serviço | Imagem | Porta | Para quê |
-|---------|--------|-------|----------|
-| `postgres` | postgres:16-alpine | 5432 | Banco de dados (com healthcheck) |
-| `redis` | redis:7-alpine | 6379 | Cache (com healthcheck) |
-| `api` | build de `apps/api/Dockerfile` | 3000 | Backend (espera os healthchecks) |
-| `pgadmin` | dpage/pgadmin4 | 5050 | UI do banco |
-
-- A imagem da API é **multi-stage** (`node:22-alpine`): compila o TypeScript,
-  compila o bcrypt nativo, remove dependências de dev e roda como usuário **não-root**.
-- No container, a API roda com `NODE_ENV=production` mas com `DB_SYNCHRONIZE=true`
-  para criar o schema automaticamente (conveniência local; produção real usaria migrations).
-
-### ⚠️ Nota Docker no Windows
-O comando `docker` pode não estar no PATH dos terminais. Se não funcionar, use o
-caminho completo `C:\Program Files\Docker\Docker\resources\bin\docker.exe`, ou
-adicione `...\resources\bin` ao PATH (também necessário para o
-`docker-credential-desktop` ao baixar imagens).
-
----
-
-## 11. CI/CD (local-first)
+## 9. CI/CD (local-first)
 
 Filosofia **local-first**: o mesmo pipeline roda na sua máquina e no GitHub.
 
-- **`npm run ci`** (na raiz) = `typecheck` + `lint` + `test` + `build` para API e
-  mobile. Hoje: **179 testes** (95 backend + 84 mobile).
-- **`.github/workflows/ci.yml`** roda exatamente isso em cada push/PR (Node 22),
-  mais um job que builda a imagem Docker da API.
+- **`npm run ci`** (na raiz) = `typecheck` + `lint` + `test` + `build`
+  (bundle export) para o app. Hoje: **125 testes**.
+- **`.github/workflows/ci.yml`** roda exatamente isso em cada push/PR (Node 22).
 - **`.githooks/pre-push`** roda o `npm run ci` antes de cada push (ative com
   `npm run setup:hooks`). Para pular numa emergência: `git push --no-verify`.
 
 ---
 
-## 12. Como rodar o projeto (passo a passo)
+## 10. Como rodar o projeto (passo a passo)
 
 ### Pré-requisitos
-- Node.js, npm, Docker Desktop.
+- Node.js e npm. **Nada de Docker.**
 
 ### 1) Instalar dependências (na raiz)
 ```bash
 npm install
 ```
 
-### 2) Subir a infraestrutura + API (Docker)
-```bash
-npm run docker:up      # sobe postgres, redis, api, pgadmin
-npm run docker:logs    # acompanhar os logs (opcional)
-```
-A API fica em `http://localhost:3000/api/v1`. No primeiro boot ela cria o schema
-e seeda as 15 categorias.
-
-### 3) Rodar o app mobile
+### 2) Rodar o app
 ```bash
 npm run mobile         # abre o Expo
 ```
-Abra no Expo Go (celular) ou num emulador. **No emulador Android**, configure
-`EXPO_PUBLIC_API_URL=http://10.0.2.2:3000/api/v1`.
+Abra no Expo Go (celular) ou num emulador — funciona **em modo avião**, já que
+não há nenhuma chamada de rede.
 
-### 4) Primeiro uso
-- Crie uma conta na tela de **Registro** → você já entra com 15 categorias e 6
-  contas. Adicione transações pelo botão **+**.
+### 3) Primeiro uso
+- A primeira tela pede só o seu nome → você já entra com 15 categorias e 6
+  contas padrão. Adicione transações pelo botão **+**.
 
 ### Comandos úteis
 | Comando | O que faz |
 |---------|-----------|
 | `npm run ci` | Roda toda a validação (typecheck/lint/test/build) |
-| `npm run docker:up` / `docker:down` | Sobe / derruba o Docker |
-| `npm run docker:build` | Rebuilda as imagens |
-| `npm run api` | Roda a API local (fora do Docker, modo watch) |
 | `npm run mobile` | Inicia o Expo |
 | `npm run setup:hooks` | Ativa o git hook de pre-push |
 
 ---
 
-## 13. Testes
+## 11. Testes
 
 | Onde | Quantos | O que cobrem |
 |------|---------|--------------|
-| Backend (`apps/api`) | 95 testes | Lógica de negócio: impulso, saldo, reports, auth, seed |
-| Mobile (`apps/mobile`) | 84 testes | Transforms, hooks, auth, componentes, smoke das telas |
+| `apps/mobile/src/data` | parte dos 125 | Lógica de negócio portada: impulso, migrations, reports, transações, backup — sobre um SQLite real em memória (`sql.js`), não mocks |
+| `apps/mobile/src/services` e `src/screens` | resto dos 125 | Transforms, hooks (React Query sobre o banco de teste), componentes, smoke das telas |
 
-Estratégia: **testes unitários com mocks** (sem precisar de banco) para rodar
-rápido e em qualquer ambiente. Testes de integração/e2e contra o PostgreSQL real
-são um próximo passo do pipeline.
+Estratégia: **SQLite real em memória** (`sql.js`) em vez de mockar o banco —
+os testes de `src/data` exercitam o SQL de verdade (inclusive violação de
+foreign key / rollback no backup), não uma simulação.
 
 ---
 
-## 14. Status atual e próximos passos
+## 12. Status atual e próximos passos
 
 ### ✅ Pronto e validado
-- **Fase 1 (MVP)** do backend: auth, users, banks, categories, transactions, reports, goals.
-- **Frontend** completo: todas as telas do design + login/registro/perfil.
-- **Integração mobile ↔ API**: o app consome dados reais (não há mais mocks em runtime).
-- **Docker** local completo + **CI/CD** local-first.
+- **Migração completa para local-first**: sem API, sem Docker, sem login —
+  todos os dados num SQLite no aparelho (issue #1).
+- **Frontend** completo: todas as telas do design, agora com onboarding de
+  nome em vez de login/registro.
+- **Backup manual**: exportar/importar `.json`, e "apagar todos os dados".
+- **CI local-first** sem infraestrutura nenhuma para manter.
 
 ### 🔜 Próximos passos sugeridos
 - **Engine de Insights (Fase 2):** substituir os dados "derivados" (evolução,
   leitura comportamental, padrão semanal de impulso) por cálculos reais do
-  motor de análise comportamental.
+  motor de análise comportamental, rodando localmente.
 - **Metas (Fase 3):** telas de criação/acompanhamento de metas e reserva de emergência.
-- **Migrations** do banco para produção (substituir o `synchronize`).
-- **Testes de integração/e2e** contra PostgreSQL real no CI.
 - **Data picker** na tela de adicionar (hoje a data é sempre "hoje").
 
 ### ⚠️ Pendências de UI (a corrigir manualmente)
@@ -448,14 +347,14 @@ são um próximo passo do pipeline.
   Conferir a elevação/sombra no device e refinar manualmente se necessário.
 
 ### Itens conhecidos deixados para depois
-- Linhas de Perfil que ainda são placeholders visuais (sem ação): **Exportar
-  dados**, **Minhas metas**, **Adicionar conta** e o botão de **editar perfil**.
-  Os toggles de **Notificações**/**Alertas de impulso** são estado local apenas.
+- Linhas de Perfil que ainda são placeholders visuais (sem ação): **Minhas
+  metas** e **Adicionar conta**. Os toggles de **Notificações**/**Alertas de
+  impulso** são estado local apenas.
 - **Data picker** na tela de adicionar (hoje a data é sempre "hoje"; a linha tem
   o chevron do design mas ainda não abre seletor).
 - O detalhe do insight (padrão semanal e dica) é visual até a engine da Fase 2.
 
 ---
 
-*Para detalhes técnicos de cada área, veja o `CLAUDE.md` dentro de
-`apps/api`, `apps/mobile`, `apps/api/src/modules/reports` e `packages/shared`.*
+*Para detalhes técnicos, veja o `CLAUDE.md` dentro de `apps/mobile` e
+`apps/mobile/app`.*

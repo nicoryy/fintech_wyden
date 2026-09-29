@@ -1,24 +1,29 @@
 /**
- * Root layout — global providers + font loading + auth-gated Stack navigator.
+ * Root layout — global providers + font loading + onboarding-gated Stack
+ * navigator.
  *
  * Providers (outermost → in):
  *   GestureHandlerRootView → SafeAreaProvider → QueryClientProvider →
- *   AuthProvider → CatalogProvider → Stack
+ *   CatalogProvider → Stack
  *
  * Fonts: Plus Jakarta Sans is loaded via `useFonts`; the splash stays visible
  * until the fonts are ready so the first paint is already pixel-perfect.
  *
- * Route guard (`RootNavigator`): while auth status is 'loading' nothing is
- * redirected; once known, a `guest` is pushed to `/login` and an `authed` user
- * away from the auth routes into `/(tabs)`.
+ * Route guard (`RootNavigator`): while the profile query is pending nothing is
+ * redirected; once it resolves, a profile with no name yet is pushed to
+ * `/welcome` (the entire onboarding — see the root CLAUDE.md), and a named
+ * profile is routed away from `/welcome` into `/(tabs)`. If the local database
+ * itself fails to open, an `ErrorState` offers a retry instead of a blank app.
  *
  * Routes:
- *   login, register     → auth screens (guest only)
- *   (tabs)              → the 5-tab shell (Início, Transações, +, Relatórios, Perfil)
- *   transaction/add     → "Nova transação" presented as a modal
- *   insight             → behavioral-insight bottom sheet over a transparent scrim
+ *   welcome              → onboarding (name only, no login)
+ *   (tabs)               → the 5-tab shell (Início, Transações, +, Relatórios, Perfil)
+ *   transaction/add      → "Nova transação" presented as a modal
+ *   edit-name            → "Editar nome" presented as a modal
+ *   insight              → behavioral-insight bottom sheet over a transparent scrim
  */
 import React, { useCallback, useEffect } from 'react';
+import { View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -27,10 +32,11 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 
+import { ErrorState } from '../src/components';
 import { fontMap } from '../src/theme/fonts';
 import { colors } from '../src/theme/tokens';
-import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { CatalogProvider } from '../src/context/CatalogContext';
+import { useProfile } from '../src/services/hooks';
 
 // Keep the splash screen visible while we load fonts.
 void SplashScreen.preventAutoHideAsync();
@@ -41,23 +47,31 @@ const queryClient = new QueryClient({
   },
 });
 
-const AUTH_ROUTES = ['login', 'register'];
+const ONBOARDING_ROUTE = 'welcome';
 
-/** Stack + the auth-aware redirect guard. Must live under AuthProvider. */
+/** Stack + the onboarding-aware redirect guard. Must live under CatalogProvider. */
 function RootNavigator() {
-  const { status } = useAuth();
+  const { data: profile, isPending, isError, refetch } = useProfile();
   const segments = useSegments();
   const router = useRouter();
 
   useEffect(() => {
-    if (status === 'loading') return;
-    const onAuthRoute = AUTH_ROUTES.includes(segments[0] ?? '');
-    if (status === 'guest' && !onAuthRoute) {
-      router.replace('/login');
-    } else if (status === 'authed' && onAuthRoute) {
+    if (isPending || isError) return;
+    const onOnboarding = segments[0] === ONBOARDING_ROUTE;
+    if (!profile?.name && !onOnboarding) {
+      router.replace('/welcome');
+    } else if (profile?.name && onOnboarding) {
       router.replace('/(tabs)');
     }
-  }, [status, segments, router]);
+  }, [profile, isPending, isError, segments, router]);
+
+  if (isError) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg, justifyContent: 'center', padding: 16 }}>
+        <ErrorState title="Não foi possível abrir seus dados" onRetry={() => void refetch()} />
+      </View>
+    );
+  }
 
   return (
     <Stack
@@ -66,11 +80,14 @@ function RootNavigator() {
         contentStyle: { backgroundColor: colors.bg },
       }}
     >
-      <Stack.Screen name="login" />
-      <Stack.Screen name="register" />
+      <Stack.Screen name="welcome" />
       <Stack.Screen name="(tabs)" />
       <Stack.Screen
         name="transaction/add"
+        options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
+      />
+      <Stack.Screen
+        name="edit-name"
         options={{ presentation: 'modal', animation: 'slide_from_bottom' }}
       />
       <Stack.Screen
@@ -108,12 +125,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }} onLayout={onLayout}>
       <SafeAreaProvider>
         <QueryClientProvider client={queryClient}>
-          <AuthProvider>
-            <CatalogProvider>
-              <StatusBar style="dark" />
-              <RootNavigator />
-            </CatalogProvider>
-          </AuthProvider>
+          <CatalogProvider>
+            <StatusBar style="dark" />
+            <RootNavigator />
+          </CatalogProvider>
         </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

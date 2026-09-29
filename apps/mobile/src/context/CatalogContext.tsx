@@ -1,24 +1,20 @@
 /**
- * CatalogContext — loads the category & bank catalogs from the API once and
- * exposes synchronous lookups (`catById` / `bankById`) plus the split lists the
- * Add screen needs. Screens render transactions/spend referencing only ids, so
- * they resolve icon/color/label through these lookups.
+ * CatalogContext — loads the category & bank catalogs from the local database
+ * once and exposes synchronous lookups (`catById` / `bankById`) plus the split
+ * lists the Add screen needs. Screens render transactions/spend referencing
+ * only ids, so they resolve icon/color/label through these lookups.
  *
- * The static mock catalog (`mock/catalog`) is kept as a *fallback*: if a lookup
- * misses (e.g. a category id not yet loaded) we fall back to the bundled
- * defaults so icons/colors never render blank.
+ * The seed catalog (`data/seeds.ts`) is kept as a *fallback*: while the first
+ * query is still loading (or if a lookup ever misses) we fall back to the
+ * same defaults the database is seeded with, so icons/colors never render
+ * blank. There's no login to gate these queries on anymore (see the root
+ * CLAUDE.md) — they're always enabled.
  */
 import React, { createContext, useContext, useMemo } from 'react';
 
-import { useOptionalAuth } from './AuthContext';
+import { DEFAULT_BANKS, DEFAULT_CATEGORIES } from '../data/seeds';
 import { useBanks, useCategories } from '../services/hooks';
-import {
-  BANKS as MOCK_BANKS,
-  CATS as MOCK_CATS,
-  INCOME_CATS as MOCK_INCOME,
-  bankById as mockBankById,
-  catById as mockCatById,
-} from '../services/mock/catalog';
+import { toBank, toCategory } from '../services/transform';
 import { CategoryTypeEnum, type Bank, type Category } from '../services/types';
 
 interface CatalogValue {
@@ -26,7 +22,7 @@ interface CatalogValue {
   expenseCats: Category[];
   incomeCats: Category[];
   banks: Bank[];
-  /** ready === true once both catalogs have loaded from the API. */
+  /** ready === true once both catalogs have loaded from the database. */
   ready: boolean;
   catById: (id: string) => Category;
   bankById: (id: string) => Bank;
@@ -34,17 +30,20 @@ interface CatalogValue {
 
 const CatalogContext = createContext<CatalogValue | null>(null);
 
+const FALLBACK_CATS = DEFAULT_CATEGORIES.map(toCategory);
+const FALLBACK_BANKS = DEFAULT_BANKS.map((b) => toBank({ ...b, initialBalanceCents: 0, balanceCents: 0 }));
+
+function fallbackCatById(id: string): Category {
+  return FALLBACK_CATS.find((c) => c.id === id) ?? FALLBACK_CATS[FALLBACK_CATS.length - 1];
+}
+
+function fallbackBankById(id: string): Bank {
+  return FALLBACK_BANKS.find((b) => b.id === id) ?? FALLBACK_BANKS[0];
+}
+
 export function CatalogProvider({ children }: { children: React.ReactNode }) {
-  const auth = useOptionalAuth();
-  // Previously fired unconditionally, including on the login screen for a
-  // guest session — /categories and /banks would 401, trigger a refresh
-  // attempt, and (on that failing too) log the guest out of a session they
-  // never had. Only gate when a real AuthContext is present and says
-  // 'guest'; with no AuthProvider in scope (e.g. tests rendering
-  // CatalogProvider directly) there is no session concept to gate on.
-  const enabled = auth ? auth.status === 'authed' : true;
-  const categoriesQ = useCategories({ enabled });
-  const banksQ = useBanks({ enabled });
+  const categoriesQ = useCategories();
+  const banksQ = useBanks();
 
   const value = useMemo<CatalogValue>(() => {
     const categories = categoriesQ.data ?? [];
@@ -53,20 +52,20 @@ export function CatalogProvider({ children }: { children: React.ReactNode }) {
     const catMap = new Map(categories.map((c) => [c.id, c]));
     const bankMap = new Map(banks.map((b) => [b.id, b]));
 
-    const catById = (id: string): Category => catMap.get(id) ?? mockCatById(id);
-    const bankById = (id: string): Bank => bankMap.get(id) ?? mockBankById(id);
+    const catById = (id: string): Category => catMap.get(id) ?? fallbackCatById(id);
+    const bankById = (id: string): Bank => bankMap.get(id) ?? fallbackBankById(id);
 
     const ready = categoriesQ.isSuccess && banksQ.isSuccess;
 
     return {
-      categories: categories.length ? categories : [...MOCK_CATS, ...MOCK_INCOME],
+      categories: categories.length ? categories : FALLBACK_CATS,
       expenseCats: categories.length
         ? categories.filter((c) => c.type === CategoryTypeEnum.EXPENSE)
-        : MOCK_CATS,
+        : FALLBACK_CATS.filter((c) => c.type === CategoryTypeEnum.EXPENSE),
       incomeCats: categories.length
         ? categories.filter((c) => c.type === CategoryTypeEnum.INCOME)
-        : MOCK_INCOME,
-      banks: banks.length ? banks : MOCK_BANKS,
+        : FALLBACK_CATS.filter((c) => c.type === CategoryTypeEnum.INCOME),
+      banks: banks.length ? banks : FALLBACK_BANKS,
       ready,
       catById,
       bankById,

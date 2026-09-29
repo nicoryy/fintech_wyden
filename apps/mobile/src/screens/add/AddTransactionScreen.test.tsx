@@ -1,25 +1,28 @@
 import React from 'react';
 import { fireEvent, waitFor } from '@testing-library/react-native';
 
-// Mock the api so the catalog (categories/banks) resolves from fixtures.
-jest.mock('../../services/api', () => {
-  const { mockApiGet, mockApiPost } = require('../../test-utils/api-fixtures');
-  return { api: { get: mockApiGet(), post: mockApiPost() } };
+import { setupTestDb } from '../../test-utils/test-db';
+import { renderWithProviders } from '../../test-utils/providers';
+import { DataError } from '../../data/errors';
+
+// Spy on the real `createTransaction` so most tests exercise the actual write
+// path against the in-memory test database, while the failure test below can
+// still force a rejection deterministically.
+jest.mock('../../data/transactions', () => {
+  const actual = jest.requireActual('../../data/transactions');
+  return { ...actual, createTransaction: jest.fn(actual.createTransaction) };
 });
 
 import { AddTransactionScreen } from './AddTransactionScreen';
-import { renderWithProviders } from '../../test-utils/providers';
-import { api } from '../../services/api';
+import { createTransaction } from '../../data/transactions';
 
-// Render then wait for the CatalogProvider's React Query calls (categories +
-// banks) to settle, so late state updates land inside act() — avoids the React
-// "update not wrapped in act(...)" warning from queries resolving post-assert.
+setupTestDb();
+
+// Render then wait for the seeded catalog (categories/banks) to resolve, so
+// late state updates land inside act() — avoids the React "update not
+// wrapped in act(...)" warning from queries resolving post-assert.
 async function renderScreen() {
   const utils = renderWithProviders(<AddTransactionScreen />);
-  await waitFor(() => {
-    expect(api.get).toHaveBeenCalledWith('/categories');
-    expect(api.get).toHaveBeenCalledWith('/banks');
-  });
   await waitFor(() => expect(utils.getByText('Compras')).toBeTruthy());
   return utils;
 }
@@ -68,58 +71,46 @@ describe('AddTransactionScreen', () => {
 
   // Regression coverage for the optimistic-success bug: the overlay used to
   // appear (and the sheet auto-close) as soon as save() was pressed,
-  // regardless of whether the POST actually succeeded.
+  // regardless of whether the write actually succeeded.
   describe('save (real mutation outcome, not optimistic)', () => {
     const fillValidForm = (utils: Awaited<ReturnType<typeof renderScreen>>) => {
       fireEvent.press(utils.getByText('Compras'));
       fireEvent.changeText(utils.getByLabelText('Valor'), '500');
     };
 
-    it('does not show the success overlay until the mutation actually resolves', async () => {
+    it('does not show the success overlay until the write actually resolves', async () => {
       const utils = await renderScreen();
       fillValidForm(utils);
 
       fireEvent.press(utils.getByText('Adicionar despesa'));
-      // Not shown synchronously on press — only once the request resolves.
+      // Not shown synchronously on press — only once the write resolves.
       expect(utils.queryByText('Despesa registrada!')).toBeNull();
 
-      await waitFor(() =>
-        expect(utils.getByText('Despesa registrada!')).toBeTruthy(),
-      );
+      await waitFor(() => expect(utils.getByText('Despesa registrada!')).toBeTruthy());
     });
 
-    it('shows a pending state and ignores a second press before the first request resolves', async () => {
+    it('shows a pending state and ignores a second press before the first write resolves', async () => {
       const utils = await renderScreen();
       fillValidForm(utils);
-      // api.post's call history carries over from earlier tests in this file
-      // (the module mock is built once, not per-test) — clear it so the
-      // count below reflects only this test's presses.
-      (api.post as jest.Mock).mockClear();
+      (createTransaction as jest.Mock).mockClear();
 
       fireEvent.press(utils.getByText('Adicionar despesa'));
       expect(utils.getByText('Salvando…')).toBeTruthy();
       // Second press while still pending — must not fire another submit.
       fireEvent.press(utils.getByText('Salvando…'));
 
-      await waitFor(() =>
-        expect(utils.getByText('Despesa registrada!')).toBeTruthy(),
-      );
-      expect(
-        (api.post as jest.Mock).mock.calls.filter(([url]) => url === '/transactions'),
-      ).toHaveLength(1);
+      await waitFor(() => expect(utils.getByText('Despesa registrada!')).toBeTruthy());
+      expect(createTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('surfaces the API error and never shows the success overlay when the request fails', async () => {
-      (api.post as jest.Mock).mockRejectedValueOnce({
-        isAxiosError: true,
-        response: { data: { message: 'Bank not found' } },
-      });
+    it('surfaces the data error and never shows the success overlay when the write fails', async () => {
+      (createTransaction as jest.Mock).mockRejectedValueOnce(new DataError('Conta não encontrada.'));
       const utils = await renderScreen();
       fillValidForm(utils);
 
       fireEvent.press(utils.getByText('Adicionar despesa'));
 
-      await waitFor(() => expect(utils.getByText('Bank not found')).toBeTruthy());
+      await waitFor(() => expect(utils.getByText('Conta não encontrada.')).toBeTruthy());
       expect(utils.queryByText('Despesa registrada!')).toBeNull();
       // The button is interactive again — not left stuck in a pending state.
       expect(utils.getByText('Adicionar despesa')).toBeTruthy();

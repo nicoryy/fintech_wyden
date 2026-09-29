@@ -2,15 +2,9 @@ import { renderHook, waitFor, act } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React from 'react';
 
-// Mock the axios api module so hooks exercise the real transform pipeline
-// against deterministic fixtures (no network).
-jest.mock('./api', () => {
-  const { mockApiGet, mockApiPost } = require('../test-utils/api-fixtures');
-  return { api: { get: mockApiGet(), post: mockApiPost() } };
-});
-
+import { setupTestDb } from '../test-utils/test-db';
 import { queryWrapper } from '../test-utils/providers';
-import { FIX_BY_BANK } from '../test-utils/api-fixtures';
+import { FIXTURE_IFOOD_CENTS, FIXTURE_SALARY_CENTS, seedCurrentMonthFixtures } from '../test-utils/fixtures';
 import {
   queryKeys,
   useDashboard,
@@ -21,10 +15,18 @@ import {
   useBanks,
   useCreateTransaction,
 } from './hooks';
-import { api } from './api';
 import { TransactionTypeEnum } from './types';
 
-describe('React Query data hooks (API-backed via mocked axios)', () => {
+setupTestDb();
+
+function mutationWrapper() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return { client, Wrapper: ({ children }: { children: React.ReactNode }) => (
+    <QueryClientProvider client={client}>{children}</QueryClientProvider>
+  ) };
+}
+
+describe('React Query data hooks (SQLite-backed)', () => {
   it('useCategories maps name→label and keeps icon/color/type', async () => {
     const { result } = renderHook(() => useCategories(), { wrapper: queryWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
@@ -41,104 +43,89 @@ describe('React Query data hooks (API-backed via mocked axios)', () => {
     expect(cash.cash).toBe(true);
   });
 
-  it('useDashboard composes summary, spend, goal, recent and evolution', async () => {
+  it('useDashboard composes summary, spend, goal, recent and evolution from local transactions', async () => {
+    await seedCurrentMonthFixtures();
     const { result } = renderHook(() => useDashboard(), { wrapper: queryWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const d = result.current.data!;
-    expect(d.summary.saldo).toBeCloseTo(4350.2);
-    expect(d.spend.length).toBe(2);
-    expect(d.goal.title).toBe('Reserva de emergência');
-    expect(d.recent.length).toBe(2);
+    expect(d.summary.saldo).toBeCloseTo((FIXTURE_SALARY_CENTS - FIXTURE_IFOOD_CENTS) / 100);
+    expect(d.spend).toEqual([{ categoryId: 'alimentacao', value: FIXTURE_IFOOD_CENTS / 100, pct: 100 }]);
+    expect(d.goal.title).toBe('Reserva de emergência'); // no goals yet -> placeholder
+    expect(d.recent).toHaveLength(2);
     expect(d.evolution.length).toBe(6);
-    // amounts are signed: the expense becomes negative
-    const expense = d.recent.find((t) => t.id === 'tx1')!;
-    expect(expense.amount).toBeCloseTo(-42.9);
+    const expense = d.recent.find((t) => t.description === 'iFood')!;
+    expect(expense.amount).toBeCloseTo(-FIXTURE_IFOOD_CENTS / 100);
   });
 
   it('useTransactions returns day-grouped transactions with time labels', async () => {
+    await seedCurrentMonthFixtures();
     const { result } = renderHook(() => useTransactions(), { wrapper: queryWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const groups = result.current.data!;
-    expect(groups.length).toBeGreaterThanOrEqual(1);
     const all = groups.flatMap((g) => g.items);
+    expect(all).toHaveLength(2);
     expect(all.every((t) => typeof t.time === 'string')).toBe(true);
   });
 
-  it('useReports composes economia, months, spend, byBank and behavior', async () => {
-    const { result } = renderHook(() => useReports(), { wrapper: queryWrapper() });
+  it('useReports composes economia, months, spend, byBank and behavior from local transactions', async () => {
+    await seedCurrentMonthFixtures();
+    const { result } = renderHook(() => useReports('Mês'), { wrapper: queryWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     const r = result.current.data!;
-    expect(r.economia.value).toBeCloseTo(4350.2);
-    expect(r.economia.pct).toBe(70); // round(4350.2 / 6250 * 100)
+    expect(r.economia.value).toBeCloseTo((FIXTURE_SALARY_CENTS - FIXTURE_IFOOD_CENTS) / 100);
     expect(r.months.length).toBe(6);
-    expect(r.byBank.length).toBe(2);
-    expect(typeof r.behavior.impulsivity).toBe('string');
+    expect(r.byBank).toEqual([{ bankId: 'nubank', value: FIXTURE_IFOOD_CENTS / 100 }]);
+    // Only this month has any activity so far, so there's nothing to compare it
+    // against yet — the honest "—" placeholder, not a fabricated delta.
+    expect(r.behavior).toEqual({ impulsivity: '—', consistency: '—' });
   });
 
-  it('useReports fetches by-category/by-bank once per month in the period and merges the totals (regression: period used to only affect economia)', async () => {
-    // api.get's call history carries over from earlier tests in this file
-    // (the module mock is built once, not per-test) — clear it so the counts
-    // below reflect only this hook's own requests.
-    (api.get as jest.Mock).mockClear();
-    const { result } = renderHook(() => useReports('Trimestre'), { wrapper: queryWrapper() });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-
-    const byCategoryCalls = (api.get as jest.Mock).mock.calls.filter(
-      ([url]) => url === '/reports/by-category',
-    );
-    const byBankCalls = (api.get as jest.Mock).mock.calls.filter(
-      ([url]) => url === '/reports/by-bank',
-    );
-    // Trimestre = 3 months, so one call per month for each endpoint — every
-    // call hitting a distinct month (no duplicate params).
-    expect(byCategoryCalls).toHaveLength(3);
-    expect(byBankCalls).toHaveLength(3);
-    const monthsRequested = byCategoryCalls.map((c) => (c[1] as { params: { month: string } }).params.month);
-    expect(new Set(monthsRequested).size).toBe(3);
-
-    // The fixture returns the same page for every month, so merging 3
-    // identical months triples each bank's total.
-    const r = result.current.data!;
-    const nubank = r.byBank.find((b) => b.bankId === 'bank-nubank')!;
-    expect(nubank.value).toBeCloseTo(FIX_BY_BANK[0].total * 3);
-  });
-
-  it('useInsight maps the first insight onto the detail shape (no fabricated weeklyPattern)', async () => {
+  it('useInsight is honest about there being no local insights engine yet', async () => {
     const { result } = renderHook(() => useInsight(), { wrapper: queryWrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(result.current.data!.title).toBe('Gasto por impulso');
+    expect(result.current.data!.title).toBe('Sem insights ainda');
     expect(result.current.data!.weeklyPattern).toBeUndefined();
   });
 });
 
 describe('useCreateTransaction', () => {
-  it('POSTs the transaction and invalidates dashboard/transactions/reports', async () => {
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  it('writes the transaction and invalidates dashboard/transactions/reports/banks/insight', async () => {
+    const { client, Wrapper } = mutationWrapper();
     const invalidateSpy = jest.spyOn(client, 'invalidateQueries');
+    const { result } = renderHook(() => useCreateTransaction(), { wrapper: Wrapper });
 
-    function wrapper({ children }: { children: React.ReactNode }) {
-      return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
-    }
-
-    const { result } = renderHook(() => useCreateTransaction(), { wrapper });
-
+    let created!: Awaited<ReturnType<typeof result.current.mutateAsync>>;
     await act(async () => {
-      await result.current.mutateAsync({
+      created = await result.current.mutateAsync({
         type: TransactionTypeEnum.EXPENSE,
-        value: 100,
-        categoryId: 'cat-compras',
-        bankId: 'bank-nubank',
+        amountCents: 10_000,
+        categoryId: 'compras',
+        bankId: 'nubank',
       });
     });
 
-    // posted to /transactions with a numeric amount + ISO date
-    expect(api.post).toHaveBeenCalledWith(
-      '/transactions',
-      expect.objectContaining({ amount: 100, categoryId: 'cat-compras', bankId: 'bank-nubank' }),
-    );
+    expect(created.amount).toBeCloseTo(-100);
     const invalidatedKeys = invalidateSpy.mock.calls.map((c) => c[0]?.queryKey);
     expect(invalidatedKeys).toContainEqual(queryKeys.dashboard);
     expect(invalidatedKeys).toContainEqual(queryKeys.transactions);
     expect(invalidatedKeys).toContainEqual(queryKeys.reports);
+    expect(invalidatedKeys).toContainEqual(queryKeys.banks);
+    expect(invalidatedKeys).toContainEqual(queryKeys.insight);
+  });
+
+  it('rejects an unknown bank with a user-facing message', async () => {
+    const { Wrapper } = mutationWrapper();
+    const { result } = renderHook(() => useCreateTransaction(), { wrapper: Wrapper });
+
+    await expect(
+      act(() =>
+        result.current.mutateAsync({
+          type: TransactionTypeEnum.EXPENSE,
+          amountCents: 1000,
+          categoryId: 'compras',
+          bankId: 'does-not-exist',
+        }),
+      ),
+    ).rejects.toThrow('Conta não encontrada.');
   });
 });

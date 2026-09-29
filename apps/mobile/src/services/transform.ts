@@ -1,26 +1,15 @@
 /**
- * Pure transforms: raw API shapes → UI domain types.
- *
- * Everything here is a pure function (no IO, no React) so it is trivially
- * unit-tested. The hooks in `hooks.ts` fetch raw API data and run it through
- * these. Notable rules:
- *  - API `amount` is a *positive decimal string*; UI `amount` is signed by type.
+ * Pure transforms: local SQLite records (and their in-memory aggregations
+ * from `src/data/reports.ts`) → UI domain types. Everything here is a pure
+ * function (no IO, no React) so it is trivially unit-tested. `hooks.ts` reads
+ * from `src/data/*` and runs the results through these. Notable rules:
+ *  - Records store money in *integer cents*; UI amounts are in reais.
+ *  - UI `Transaction.amount` is signed by type (expense → negative).
  *  - Bank `ink` is derived from background luminance (dark ink on light tiles).
- *  - `evolution` and `behavior` are *derived* (documented inline) — the backend
- *    does not return them directly in Phase 1.
  */
 import type { IconName } from '../components/Icon';
-import type {
-  ApiBank,
-  ApiCategory,
-  ApiGoal,
-  ApiInsight,
-  ApiMonthlyComparison,
-  ApiReportByBank,
-  ApiReportByCategory,
-  ApiReportSummary,
-  ApiTransaction,
-} from './api-types';
+import type { BankTotal, CategoryTotal, MonthTotal } from '../data/reports';
+import type { BankRecord, CategoryRecord, GoalRecord, TransactionRecord } from '../data/records';
 import {
   CategoryTypeEnum,
   GoalStatusEnum,
@@ -32,7 +21,6 @@ import {
   type Goal,
   type InsightDetail,
   type MonthPoint,
-  type Reports,
   type SpendSlice,
   type Transaction,
   type TransactionGroup,
@@ -48,7 +36,7 @@ const KNOWN_ICONS: ReadonlySet<string> = new Set<IconName>([
   'download', 'help',
 ]);
 
-/** Coerce an API icon string to a valid IconName, defaulting to 'dots'. */
+/** Coerce a stored icon string to a valid IconName, defaulting to 'dots'. */
 export function toIconName(icon: string | null | undefined): IconName {
   return icon && KNOWN_ICONS.has(icon) ? (icon as IconName) : 'dots';
 }
@@ -78,22 +66,22 @@ export function shortFromName(name: string): string {
 
 // ── Category ────────────────────────────────────────────────────────────────
 
-export function toCategory(c: ApiCategory): Category {
+export function toCategory(c: CategoryRecord): Category {
   return {
     id: c.id,
     label: c.name,
     icon: toIconName(c.icon),
-    color: c.color,
+    color: c.color ?? '#AEB4BB',
     type: c.type,
   };
 }
 
-export function toCategories(list: ApiCategory[]): Category[] {
+export function toCategories(list: CategoryRecord[]): Category[] {
   return list.map(toCategory);
 }
 
 /** Split a category list into expense / income catalogs (for the Add screen). */
-export function splitCategories(list: ApiCategory[]): {
+export function splitCategories(list: CategoryRecord[]): {
   expense: Category[];
   income: Category[];
 } {
@@ -106,7 +94,7 @@ export function splitCategories(list: ApiCategory[]): {
 
 // ── Bank ────────────────────────────────────────────────────────────────────
 
-export function toBank(b: ApiBank): Bank {
+export function toBank(b: BankRecord): Bank {
   const color = b.color ?? '#AEB4BB';
   const short = b.short ?? shortFromName(b.name);
   return {
@@ -116,20 +104,19 @@ export function toBank(b: ApiBank): Bank {
     short,
     ink: inkForBackground(color),
     cash: b.name === 'Dinheiro',
-    balance: Number(b.currentBalance ?? 0),
+    balance: b.balanceCents / 100,
   };
 }
 
-export function toBanks(list: ApiBank[]): Bank[] {
+export function toBanks(list: BankRecord[]): Bank[] {
   return list.map(toBank);
 }
 
 // ── Transaction ─────────────────────────────────────────────────────────────
 
-/** Signed UI amount: expenses are negative, income positive. */
-export function signedAmount(type: TransactionTypeEnum, amount: string | number): number {
-  const n = typeof amount === 'string' ? Number(amount) : amount;
-  return type === TransactionTypeEnum.EXPENSE ? -Math.abs(n) : Math.abs(n);
+/** Signed UI amount (reais): expenses are negative, income positive. */
+export function signedAmount(type: TransactionTypeEnum, amount: number): number {
+  return type === TransactionTypeEnum.EXPENSE ? -Math.abs(amount) : Math.abs(amount);
 }
 
 const PT_MONTHS = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
@@ -162,22 +149,22 @@ export function whenLabel(date: Date, now: Date = new Date()): string {
   return `${dayLabel(date, now)}, ${timeLabel(date)}`;
 }
 
-/** Transform a raw transaction into the compact UI shape (with `when`+`time`). */
-export function toTransaction(t: ApiTransaction, now: Date = new Date()): Transaction {
-  const date = new Date(t.transactionDate);
+/** Transform a stored transaction into the compact UI shape (with `when`+`time`). */
+export function toTransaction(t: TransactionRecord, now: Date = new Date()): Transaction {
+  const date = new Date(t.occurredAt);
   return {
     id: t.id,
     categoryId: t.categoryId,
     bankId: t.bankId,
-    description: t.description ?? t.category?.name ?? 'Transação',
-    amount: signedAmount(t.type, t.amount),
+    description: t.description ?? t.categoryName ?? 'Transação',
+    amount: signedAmount(t.type, t.amountCents / 100),
     when: whenLabel(date, now),
     time: timeLabel(date),
-    isImpulse: t.isImpulse ?? false,
+    isImpulse: t.isImpulse,
   };
 }
 
-export function toTransactions(list: ApiTransaction[], now: Date = new Date()): Transaction[] {
+export function toTransactions(list: TransactionRecord[], now: Date = new Date()): Transaction[] {
   return list.map((t) => toTransaction(t, now));
 }
 
@@ -185,13 +172,11 @@ export function toTransactions(list: ApiTransaction[], now: Date = new Date()): 
  * Group transactions by calendar day, newest day first, each item carrying a
  * "HH:mm" time. Day label is "Hoje"/"Ontem"/"DD mmm" (pt-BR).
  */
-export function groupByDay(list: ApiTransaction[], now: Date = new Date()): TransactionGroup[] {
-  const sorted = [...list].sort(
-    (a, b) => new Date(b.transactionDate).getTime() - new Date(a.transactionDate).getTime(),
-  );
+export function groupByDay(list: TransactionRecord[], now: Date = new Date()): TransactionGroup[] {
+  const sorted = [...list].sort((a, b) => b.occurredAt - a.occurredAt);
   const groups: { key: string; label: string; items: Transaction[] }[] = [];
   for (const t of sorted) {
-    const date = new Date(t.transactionDate);
+    const date = new Date(t.occurredAt);
     const key = `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
     let g = groups.find((x) => x.key === key);
     if (!g) {
@@ -205,12 +190,12 @@ export function groupByDay(list: ApiTransaction[], now: Date = new Date()): Tran
 
 // ── Goal ────────────────────────────────────────────────────────────────────
 
-export function toGoal(g: ApiGoal): Goal {
+export function toGoal(g: GoalRecord): Goal {
   return {
     id: g.id,
     title: g.title,
-    targetAmount: Number(g.targetAmount),
-    currentAmount: Number(g.currentAmount),
+    targetAmount: g.targetCents / 100,
+    currentAmount: g.currentCents / 100,
     status: g.status,
   };
 }
@@ -228,81 +213,36 @@ export function placeholderGoal(): Goal {
 
 // ── Reports / spend ─────────────────────────────────────────────────────────
 
-export function toSpendSlices(list: ApiReportByCategory[]): SpendSlice[] {
-  return list.map((x) => ({ categoryId: x.categoryId, value: x.total, pct: x.pct }));
+export function toSpendSlices(list: CategoryTotal[]): SpendSlice[] {
+  return list.map((x) => ({ categoryId: x.categoryId, value: x.totalCents / 100, pct: x.pct }));
 }
 
-export function toBankSpend(list: ApiReportByBank[]): BankSpend[] {
-  return list.map((x) => ({ bankId: x.bankId, value: x.total }));
+export function toBankSpend(list: BankTotal[]): BankSpend[] {
+  return list.map((x) => ({ bankId: x.bankId, value: x.totalCents / 100 }));
 }
 
-/**
- * Merges by-category report pages from several months into one. The backend
- * endpoint is month-only, so a Trimestre/Ano period is built by calling it
- * once per month and combining the results here — same idea as the backend's
- * own per-month aggregation (sum totals, recompute pct against the merged
- * grand total, sort descending).
- *
- * A single page is returned as-is: `pct` already came straight from the
- * backend's own (possibly larger) grand total for that month, and
- * recomputing it from just the categories in this page would silently
- * change the Mês period's numbers for no reason.
- */
-export function mergeByCategory(
-  pages: ApiReportByCategory[][],
-): ApiReportByCategory[] {
-  if (pages.length <= 1) return pages[0] ?? [];
-
-  const merged = new Map<string, ApiReportByCategory>();
-  for (const page of pages) {
-    for (const item of page) {
-      const existing = merged.get(item.categoryId);
-      if (existing) existing.total += item.total;
-      else merged.set(item.categoryId, { ...item });
-    }
-  }
-
-  const grandTotal = Array.from(merged.values()).reduce((sum, i) => sum + i.total, 0);
-  return Array.from(merged.values())
-    .map((item) => ({ ...item, pct: grandTotal > 0 ? (item.total / grandTotal) * 100 : 0 }))
-    .sort((a, b) => b.total - a.total);
-}
-
-/** Same idea as {@link mergeByCategory} for by-bank pages (no pct to redo). */
-export function mergeByBank(pages: ApiReportByBank[][]): ApiReportByBank[] {
-  const merged = new Map<string, ApiReportByBank>();
-  for (const page of pages) {
-    for (const item of page) {
-      const existing = merged.get(item.bankId);
-      if (existing) existing.total += item.total;
-      else merged.set(item.bankId, { ...item });
-    }
-  }
-  return Array.from(merged.values()).sort((a, b) => b.total - a.total);
-}
-
-/** monthly-comparison → MonthPoint[] with abbreviated pt-BR month names. */
-export function toMonthPoints(list: ApiMonthlyComparison[]): MonthPoint[] {
+/** monthly totals → MonthPoint[] with abbreviated pt-BR month names. */
+export function toMonthPoints(list: MonthTotal[]): MonthPoint[] {
   return list.map((x) => {
     const monthIdx = Number(x.month.split('-')[1]) - 1;
     const name = PT_MONTHS[monthIdx] ?? x.month;
     return {
       m: name.charAt(0).toUpperCase() + name.slice(1),
-      rec: x.receitas,
-      desp: x.despesas,
+      rec: x.receitasCents / 100,
+      desp: x.despesasCents / 100,
     };
   });
 }
 
 /**
- * DERIVED: the sparkline of net-worth evolution. The backend does not expose a
- * cumulative-balance series, so we derive it from monthly-comparison: running
- * sum of (receitas − despesas) per month, then min-max normalized to 0..1.
+ * DERIVED: the sparkline of net-worth evolution. There's no cumulative-balance
+ * series stored, so we derive it from the monthly totals: running sum of
+ * (receitas − despesas) per month, then min-max normalized to 0..1.
  */
-export function deriveEvolution(list: ApiMonthlyComparison[]): number[] {
+export function deriveEvolution(list: MonthTotal[]): number[] {
   if (list.length === 0) return [0, 0];
   let acc = 0;
-  const cumulative = list.map((m) => (acc += m.receitas - m.despesas));
+  const cumulative = list.map((m) => (acc += m.receitasCents - m.despesasCents));
   const min = Math.min(...cumulative);
   const max = Math.max(...cumulative);
   const range = max - min;
@@ -312,18 +252,20 @@ export function deriveEvolution(list: ApiMonthlyComparison[]): number[] {
 
 /**
  * DERIVED: change in the monthly net (receitas − despesas) of the latest month
- * vs the one before it. Returns null when there isn't enough activity to make a
- * meaningful comparison (fewer than two months, or both months empty) so the UI
- * can hide the "vs. mês anterior" line for new accounts instead of showing a
- * fabricated number.
+ * vs the one before it, in reais. Returns null when there isn't enough
+ * activity to make a meaningful comparison (fewer than two months, or both
+ * months empty) so the UI can hide the "vs. mês anterior" line for new
+ * accounts instead of showing a fabricated number.
  */
-export function deriveSaldoDelta(list: ApiMonthlyComparison[]): number | null {
+export function deriveSaldoDelta(list: MonthTotal[]): number | null {
   if (list.length < 2) return null;
   const cur = list[list.length - 1];
   const prev = list[list.length - 2];
-  const hasActivity = [cur, prev].some((m) => m.receitas !== 0 || m.despesas !== 0);
+  const hasActivity = [cur, prev].some((m) => m.receitasCents !== 0 || m.despesasCents !== 0);
   if (!hasActivity) return null;
-  return cur.receitas - cur.despesas - (prev.receitas - prev.despesas);
+  const curNetCents = cur.receitasCents - cur.despesasCents;
+  const prevNetCents = prev.receitasCents - prev.despesasCents;
+  return (curNetCents - prevNetCents) / 100;
 }
 
 const MONTHS_FULL = [
@@ -351,32 +293,25 @@ export function shiftMonth(month: string, delta: number): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
-/** economia value + percentage of income that was saved. */
-export function economiaFromSummary(s: ApiReportSummary): { value: number; pct: number } {
-  const pct = s.receitas > 0 ? Math.round((s.saldo / s.receitas) * 100) : 0;
-  return { value: s.economia, pct };
-}
-
 /**
  * economia (saved = receitas − despesas) aggregated over the last `monthsBack`
- * buckets of monthly-comparison, plus the % of income saved. Backs the period
- * filter (Mês = 1, Trimestre = 3, Ano = 12) since the backend's summary endpoint
- * is month-only.
+ * buckets of monthly totals, plus the % of income saved, in reais. Backs the
+ * period filter (Mês = 1, Trimestre = 3, Ano = 12).
  */
 export function economiaForPeriod(
-  list: ApiMonthlyComparison[],
+  list: MonthTotal[],
   monthsBack: number,
 ): { value: number; pct: number } {
   const window = monthsBack >= list.length ? list : list.slice(-monthsBack);
-  const receitas = window.reduce((s, m) => s + m.receitas, 0);
-  const despesas = window.reduce((s, m) => s + m.despesas, 0);
-  const value = receitas - despesas;
-  const pct = receitas > 0 ? Math.round((value / receitas) * 100) : 0;
-  return { value, pct };
+  const receitasCents = window.reduce((s, m) => s + m.receitasCents, 0);
+  const despesasCents = window.reduce((s, m) => s + m.despesasCents, 0);
+  const valueCents = receitasCents - despesasCents;
+  const pct = receitasCents > 0 ? Math.round((valueCents / receitasCents) * 100) : 0;
+  return { value: valueCents / 100, pct };
 }
 
 /** Percentage of impulse transactions in a list (0..100, integer). */
-function impulsePct(list: ApiTransaction[]): number {
+function impulsePct(list: TransactionRecord[]): number {
   const expenses = list.filter((t) => t.type === TransactionTypeEnum.EXPENSE);
   if (expenses.length === 0) return 0;
   const impulse = expenses.filter((t) => t.isImpulse).length;
@@ -398,9 +333,9 @@ function deltaLabel(delta: number | null): string {
  * with the real Insights engine.
  */
 export function deriveBehavior(
-  current: ApiTransaction[],
-  previous: ApiTransaction[],
-): Reports['behavior'] {
+  current: TransactionRecord[],
+  previous: TransactionRecord[],
+): { impulsivity: string; consistency: string } {
   const curHasData = current.some((t) => t.type === TransactionTypeEnum.EXPENSE);
   const prevHasData = previous.some((t) => t.type === TransactionTypeEnum.EXPENSE);
   if (!curHasData || !prevHasData) {
@@ -417,6 +352,14 @@ export function deriveBehavior(
 
 // ── Insight ─────────────────────────────────────────────────────────────────
 
+/** Shape a locally-computed insight would have (Phase 2 — see hooks.ts). */
+export interface LocalInsight {
+  type: InsightTypeEnum;
+  score: number;
+  title: string;
+  description: string;
+}
+
 /** Map an insight score (0..100) to a coarse tone/label. */
 function scoreBand(score: number): string {
   if (score >= 66) return 'Alto';
@@ -425,16 +368,14 @@ function scoreBand(score: number): string {
 }
 
 /**
- * The backend `GET /insights` returns flat records — `type`, `title`,
- * `description`, `score`, nothing per-weekday or per-hour. This used to fill
- * `weeklyPattern` and a "Horário de pico" metric with hardcoded numbers
- * regardless of what (if anything) the API returned, presenting invented
- * data as if it were measured. Now `weeklyPattern` and the peak-hour metric
- * are only ever emitted once the engine actually produces them (Phase 2) —
- * `scoreBand` is the one metric genuinely derived from the record's own
- * `score`, so it's the only one kept today.
+ * The old backend never actually generated insights (`GET /insights` always
+ * returned `[]`); the local Phase-1 port keeps that honest behavior — `hooks.ts`
+ * always calls this with an empty list today. Once the Fase 2 engine computes
+ * real per-user insights locally, it can hand its output straight to this same
+ * mapping (only the score-derived metric below has ever had real data behind
+ * it — no fabricated `weeklyPattern` or peak-hour metric).
  */
-export function toInsightDetail(list: ApiInsight[]): InsightDetail {
+export function toInsightDetail(list: LocalInsight[]): InsightDetail {
   const first = list[0];
   if (!first) {
     return {

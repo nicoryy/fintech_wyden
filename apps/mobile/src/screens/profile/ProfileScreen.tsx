@@ -5,19 +5,20 @@
  *
  * Deviations requested by the user: no "Segurança" row, and "Ajuda e suporte"
  * carries the developer contact (Pedro Nicory · nicoryy.com), opening the site.
- * Identity, banks and the behavioral copy come from the live API; the trait
- * bars are a coarse Phase-1 mapping of the impulse band (Phase 2 will compute
- * real per-trait scores).
+ * Identity is just the local name (see the root CLAUDE.md — there's no login
+ * or email anymore); banks and the behavioral copy come from the local
+ * database. "Conta" now holds the JSON backup export/import and "Apagar
+ * todos os dados" in place of the old sign-out.
  */
 import React, { useState } from 'react';
-import { View, ScrollView, StyleSheet, Linking } from 'react-native';
+import { View, ScrollView, StyleSheet, Alert, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Icon, Press, Txt, type IconName } from '../../components';
-import { useAuth } from '../../context/AuthContext';
 import { useCatalog } from '../../context/CatalogContext';
-import { useInsight } from '../../services/hooks';
+import { useExportBackup, useImportBackup, useInsight, useProfile, useResetData } from '../../services/hooks';
+import { errorMessage } from '../../utils/errors';
 import { brl } from '../../utils/format';
 import { colors, radii, cardShadow, tileShadow } from '../../theme/tokens';
 
@@ -35,15 +36,55 @@ function initials(name: string): string {
 export function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { user, signOut } = useAuth();
+  const { data: profile } = useProfile();
   const { banks } = useCatalog();
   const { data: insight } = useInsight();
+
+  const exportBackup = useExportBackup();
+  const importBackup = useImportBackup();
+  const resetData = useResetData();
 
   const [notif, setNotif] = useState(true);
   const [alerts, setAlerts] = useState(true);
 
-  const name = user?.name ?? 'Visitante';
-  const email = user?.email ?? '';
+  const name = profile?.name ?? 'Visitante';
+
+  const onExport = () => {
+    exportBackup.mutate(undefined, {
+      onError: (err) => Alert.alert('Não foi possível exportar', errorMessage(err, 'Tente novamente.')),
+    });
+  };
+
+  const onImport = () => {
+    Alert.alert(
+      'Importar backup',
+      'Isso substitui todos os dados atuais deste aparelho pelos dados do arquivo. Essa ação não pode ser desfeita.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Importar',
+          onPress: () =>
+            importBackup.mutate(undefined, {
+              onSuccess: (result) => {
+                if (result === 'imported') Alert.alert('Dados importados com sucesso.');
+              },
+              onError: (err) => Alert.alert('Não foi possível importar', errorMessage(err, 'Tente novamente.')),
+            }),
+        },
+      ],
+    );
+  };
+
+  const onResetAll = () => {
+    Alert.alert(
+      'Apagar todos os dados',
+      'Isso remove todas as transações, contas e o nome salvo neste aparelho. Essa ação não pode ser desfeita.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Apagar', style: 'destructive', onPress: () => resetData.mutate() },
+      ],
+    );
+  };
 
   return (
     <ScrollView
@@ -61,17 +102,20 @@ export function ProfileScreen() {
       {/* identity */}
       <View style={styles.identity}>
         <View style={styles.avatar}>
-          <Txt style={styles.avatarText}>{user ? initials(name) : '?'}</Txt>
+          <Txt style={styles.avatarText}>{profile?.name ? initials(name) : '?'}</Txt>
         </View>
         <View style={{ flex: 1, minWidth: 0 }}>
           <Txt numberOfLines={1} style={styles.idName}>{name}</Txt>
-          {!!email && <Txt numberOfLines={1} style={styles.idEmail}>{email}</Txt>}
           <View style={styles.idBadge}>
-            <Icon name="trend" size={13} stroke={colors.greenInk} sw={2.3} />
-            <Txt style={styles.idBadgeText}>Conta ativa</Txt>
+            <Icon name="shield" size={13} stroke={colors.greenInk} sw={2.3} />
+            <Txt style={styles.idBadgeText}>Dados neste aparelho</Txt>
           </View>
         </View>
-        <Press accessibilityLabel="Editar perfil" style={[styles.editBtn, tileShadow]}>
+        <Press
+          accessibilityLabel="Editar nome"
+          onPress={() => router.push('/edit-name')}
+          style={[styles.editBtn, tileShadow]}
+        >
           <Icon name="pencil" size={19} stroke={colors.ink} sw={1.8} />
         </Press>
       </View>
@@ -108,7 +152,18 @@ export function ProfileScreen() {
       <SettingsCard
         title="Conta"
         items={[
-          { icon: 'download', label: 'Exportar dados', sub: 'CSV ou PDF' },
+          {
+            icon: 'download',
+            label: 'Exportar backup',
+            sub: 'Salva um arquivo .json com todos os seus dados',
+            onPress: onExport,
+          },
+          {
+            icon: 'repeat',
+            label: 'Importar backup',
+            sub: 'Substitui os dados atuais por um arquivo .json',
+            onPress: onImport,
+          },
           {
             icon: 'help',
             label: 'Ajuda e suporte',
@@ -116,27 +171,27 @@ export function ProfileScreen() {
             onPress: () => void Linking.openURL(DEV_SITE),
           },
           {
-            icon: 'logout',
-            label: 'Sair da conta',
+            icon: 'close',
+            label: 'Apagar todos os dados',
             danger: true,
             tint: colors.orangeWash,
             ink: colors.orange,
-            onPress: () => void signOut(),
+            onPress: onResetAll,
           },
         ]}
       />
 
-      <Txt style={styles.footer}>WYDEN · versão 1.0</Txt>
+      <Txt style={styles.footer}>WYDEN · versão 1.0 · Desenvolvido por Pedro Nicory</Txt>
     </ScrollView>
   );
 }
 
 // ── Behavioral profile (purple — differentiator) ────────────────────────────
 // Used to also render three "Consciente/Impulsivo/Planejador" trait bars from
-// a hardcoded BANDS lookup table with no backend data behind it whatsoever —
-// removed rather than replaced, since there is no per-trait score to show
-// honestly yet (only the single overall índice de impulso in insight.metrics,
-// already shown in InsightSheet).
+// a hardcoded BANDS lookup table with no data behind it whatsoever — removed
+// rather than replaced, since there is no per-trait score to show honestly
+// yet (only the single overall índice de impulso in insight.metrics, already
+// shown in InsightSheet).
 function BehaviorProfile({
   insight,
   onOpen,
@@ -265,7 +320,6 @@ const styles = StyleSheet.create({
   },
   avatarText: { fontSize: 22, fontWeight: '800', color: colors.greenInk, letterSpacing: -0.5 },
   idName: { fontSize: 21, fontWeight: '800', color: colors.ink, letterSpacing: -0.5 },
-  idEmail: { fontSize: 13.5, color: colors.ink2, marginTop: 2 },
   idBadge: {
     flexDirection: 'row',
     alignItems: 'center',

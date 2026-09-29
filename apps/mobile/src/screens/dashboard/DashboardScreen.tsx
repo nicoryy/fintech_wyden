@@ -9,8 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Card, Donut, ErrorState, Icon, Press, ProgressBar, ProgressRing, Sparkline, Txt } from '../../components';
 import { useCatalog } from '../../context/CatalogContext';
-import { useOptionalAuth } from '../../context/AuthContext';
-import { useDashboard, useInsight } from '../../services/hooks';
+import { useDashboard, useInsight, useProfile } from '../../services/hooks';
 import type { Category, Dashboard, SpendSlice, Transaction } from '../../services/types';
 import { brl, brlParts } from '../../utils/format';
 import { colors, radii, tileShadow, withAlpha } from '../../theme/tokens';
@@ -63,7 +62,7 @@ export function DashboardScreen() {
 
 // ── Header ──────────────────────────────────────────────────
 function Header() {
-  const name = firstName(useOptionalAuth()?.user?.name);
+  const name = firstName(useProfile().data?.name);
   return (
     <View style={styles.header}>
       <View style={{ flex: 1, minWidth: 0 }}>

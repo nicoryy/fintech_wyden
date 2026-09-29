@@ -53,23 +53,57 @@ jest.mock('expo-font', () => ({
   Font: { isLoaded: () => true },
 }));
 
-// expo-secure-store: no native module under jest. Back it with an in-memory map
-// so auth-storage works headlessly in tests.
-jest.mock('expo-secure-store', () => {
-  const store = new Map();
+// expo-sqlite: no native module under jest. `src/data/db.ts` only ever reaches
+// this when a test forgot to call `setDbForTests()` (see test-utils/test-db.ts)
+// before exercising code that touches the database — fail loudly instead of
+// hanging on a native call that doesn't exist headlessly.
+jest.mock('expo-sqlite', () => ({
+  __esModule: true,
+  openDatabaseAsync: jest.fn(() => {
+    throw new Error('expo-sqlite is not available in tests — call setDbForTests() first.');
+  }),
+}));
+
+// expo-crypto: back randomUUID with Node's own implementation.
+jest.mock('expo-crypto', () => ({
+  __esModule: true,
+  randomUUID: () => require('node:crypto').randomUUID(),
+}));
+
+// expo-file-system / expo-sharing / expo-document-picker: only exercised by
+// `services/backup-file.ts`'s native IO, which no unit test drives directly —
+// these mocks just need to be inert enough that importing `hooks.ts` (which
+// imports backup-file.ts) doesn't crash headlessly.
+jest.mock('expo-file-system', () => {
+  class File {
+    constructor(...parts) {
+      this.uri = parts.filter((p) => typeof p === 'string').join('/');
+      this.exists = false;
+    }
+    create() {}
+    write() {}
+    delete() {}
+    text() {
+      return Promise.resolve('');
+    }
+  }
   return {
     __esModule: true,
-    setItemAsync: jest.fn((k, v) => {
-      store.set(k, v);
-      return Promise.resolve();
-    }),
-    getItemAsync: jest.fn((k) => Promise.resolve(store.get(k) ?? null)),
-    deleteItemAsync: jest.fn((k) => {
-      store.delete(k);
-      return Promise.resolve();
-    }),
+    File,
+    Paths: { cache: 'cache', document: 'document' },
   };
 });
+
+jest.mock('expo-sharing', () => ({
+  __esModule: true,
+  isAvailableAsync: jest.fn(() => Promise.resolve(true)),
+  shareAsync: jest.fn(() => Promise.resolve()),
+}));
+
+jest.mock('expo-document-picker', () => ({
+  __esModule: true,
+  getDocumentAsync: jest.fn(() => Promise.resolve({ canceled: true, assets: null })),
+}));
 
 // Reset router spies between tests for isolation.
 beforeEach(() => {
