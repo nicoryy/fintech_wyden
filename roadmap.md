@@ -6,8 +6,7 @@ Objetivo: validar o conceito do produto.
 
 ### Funcionalidades
 
-* Cadastro de usuário
-* Login
+* Configuração de nome (onboarding local, sem login/conta)
 * Cadastro de bancos
 * Cadastro de categorias 
 * Cadastro de receitas
@@ -16,6 +15,7 @@ Objetivo: validar o conceito do produto.
 * Gráfico de despesas por categoria
 * Gráfico de receitas x despesas
 * Relatórios básicos
+* Backup local (exportar/importar `.json`)
 
 ### Critério de Sucesso
 

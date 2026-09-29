@@ -2,16 +2,19 @@
 
 ## Visão Geral
 
-Arquitetura baseada em aplicação mobile com backend centralizado e banco de dados relacional.
+Aplicação mobile **local-first**: todo o estado vive num banco SQLite embutido
+no próprio aparelho do usuário. Não há backend, não há rede — a app é o
+sistema inteiro. (Uma versão anterior rodava um backend NestJS + PostgreSQL em
+Docker; foi removida por ser complexidade desnecessária para um app pessoal,
+de um único usuário, cujos dados bancários não devem sair do aparelho — ver
+issue #1 e o git history.)
 
 ```text
 Mobile App
     |
-API REST
+Camada de dados (src/data)
     |
-Business Rules
-    |
-PostgreSQL
+SQLite (expo-sqlite, on-device)
 ```
 
 ---
@@ -27,6 +30,7 @@ PostgreSQL
 * React Query
 * React Hook Form
 * Zod
+* expo-sqlite / expo-crypto / expo-file-system / expo-sharing / expo-document-picker
 
 ### Módulos
 
@@ -39,111 +43,87 @@ App
 ├── Reports
 ├── Behavioral Insights
 ├── Goals
-└── Settings
+├── Settings
+└── Backup (export/import de dados)
 ```
 
 ---
 
-## Backend
+## Banco de Dados (local, SQLite)
 
-### Stack
+Sem `user_id` em nenhuma tabela (um único usuário por aparelho). Valores em
+**centavos** (inteiro); datas em **epoch ms**.
 
-* Node.js
-* NestJS
-* TypeScript
+### settings
 
-### Módulos
-
-```text
-Backend
-├── Auth
-├── Users
-├── Transactions
-├── Banks
-├── Categories
-├── Reports
-├── Insights
-└── Goals
+```sql
+key
+value
 ```
 
----
-
-## Banco de Dados
-
-### User
+### categories
 
 ```sql
 id
 name
-email
-password_hash
+type
+icon
+color
+created_at
+```
+
+### banks
+
+```sql
+id
+name
+short
+color
+initial_balance_cents
+created_at
+```
+
+O saldo atual **não é uma coluna** — é calculado na leitura como
+`initial_balance_cents + Σreceitas − Σdespesas` sobre a tabela `transactions`.
+
+### transactions
+
+```sql
+id
+bank_id
+category_id
+amount_cents
+type
+description
+occurred_at
+is_impulse
+created_at
+```
+
+### goals
+
+```sql
+id
+title
+target_cents
+current_cents
+deadline
+status
 created_at
 updated_at
 ```
 
-### Bank
-
-```sql
-id
-user_id
-name
-initial_balance
-current_balance
-created_at
-```
-
-### Category
-
-```sql
-id
-name
-type
-created_at
-```
-
-### Transaction
-
-```sql
-id
-user_id
-bank_id
-category_id
-amount
-type
-description
-transaction_date
-created_at
-```
-
-### Insight
-
-```sql
-id
-user_id
-type
-score
-title
-description
-generated_at
-```
-
-### Goal
-
-```sql
-id
-user_id
-title
-target_amount
-current_amount
-deadline
-status
-```
+Não existe tabela `insights`: nada nunca gerou insights de verdade (nem a
+antiga API); a engine real é Fase 2.
 
 ---
 
 ## Camada de Insights
 
-Responsável pela análise comportamental.
+Responsável pela análise comportamental. Hoje só a heurística de impulso por
+transação é real (`is_impulse`, calculada em `src/data/impulse.ts`); os
+indicadores abaixo são o design da engine completa, ainda não implementada
+(Fase 2 — ver `roadmap.md`).
 
 ### Indicadores
 
@@ -179,44 +159,21 @@ Baseado em:
 
 ---
 
-## Segurança
+## Segurança e privacidade
 
-### Autenticação
-
-* JWT
-* Refresh Token
-
-### Criptografia
-
-* bcrypt
-
-### Proteção
-
-* Rate Limiting
-* Validation Pipes
-* Input Sanitization
+* **Sem login**: onboarding é só um nome, guardado localmente.
+* **Sem rede**: o app nunca envia dados para fora do aparelho.
+* **Backup manual**: exportar/importar um arquivo `.json` (o usuário decide
+  onde guardá-lo — AirDrop, e-mail, nuvem pessoal, etc.).
+* **Android**: `allowBackup: false` no `app.json` evita que o Auto Backup do
+  Google suba o banco para a nuvem do usuário sem que ele peça.
+* Sem criptografia adicional do arquivo do banco (`SQLCipher`) por ora —
+  confia no isolamento de sandbox do sistema operacional; pode ser adicionado
+  depois via migração, sem perder dados.
 
 ---
 
 ## Infraestrutura
 
-### Ambiente
-
-Docker
-
-### Serviços
-
-```
-VPS
-├── Frontend
-├── Backend
-├── PostgreSQL
-├── Redis
-└── Nginx
-```
-
-### Monitoramento
-
-* Logs estruturados
-* Health Checks
-* Backup automático
+Nenhuma. O app roda inteiramente no aparelho do usuário; o CI (GitHub Actions)
+só faz typecheck/lint/test/bundle — não há deploy de servidor.

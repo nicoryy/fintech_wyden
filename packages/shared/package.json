@@ -1,7 +1,0 @@
-{
-  "name": "@wyden/shared",
-  "version": "0.0.1",
-  "author": { "name": "Pedro Nicory", "url": "https://nicoryy.com" },
-  "homepage": "https://nicoryy.com",
-  "main": "src/types/index.ts"
-}
